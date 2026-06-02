@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { Html, MapControls } from '@react-three/drei'
+import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -2044,27 +2044,27 @@ function ThreeMapNode({
       {node.nodeType === 'hazard' ? <ConeGeometryNode color={color} /> : null}
       {node.nodeType === 'road' || node.nodeType === 'origin' ? <BoxGeometryNode color={color} /> : null}
       {node.nodeType === 'settlement' || node.nodeType === 'court' || node.nodeType === 'wilds' || node.nodeType === 'mystery' ? <SphereGeometryNode color={color} /> : null}
-      <Html position={[0, 0.86, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
+      <Html position={[0, 0.86, 0]} center style={{ pointerEvents: 'none', width: 'max-content' }}>
         <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-foreground text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
           {node.label}
         </span>
       </Html>
       {node.selected ? (
-        <Html position={[0, 1.58, 0]} center distanceFactor={8} style={{ pointerEvents: 'auto' }}>
-          <div role="dialog" aria-label={`${node.label} details`} className="w-64 border border-foreground bg-background p-3 text-foreground shadow-none">
+        <Html position={[0, 1.48, 0]} center style={{ pointerEvents: 'auto', width: 'max-content' }}>
+          <div role="dialog" aria-label={`${node.label} details`} className="w-56 max-w-[70vw] border border-foreground bg-background p-2.5 text-foreground shadow-none">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-sans text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Location</p>
-                <h3 className="mt-1 truncate font-serif text-lg leading-tight">{node.label}</h3>
+                <h3 className="mt-1 truncate font-serif text-base leading-tight">{node.label}</h3>
               </div>
               <MapNodeTypeBadge nodeType={node.nodeType} />
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               {node.current ? <Badge variant="secondary">current location</Badge> : null}
               {!node.explored ? <Badge variant="secondary">unexplored</Badge> : null}
             </div>
-            <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{node.description}</p>
-            <div className="mt-3 flex flex-col gap-2">
+            <p className="mt-2 font-serif text-xs leading-5 text-muted-foreground">{node.description}</p>
+            <div className="mt-2 flex flex-col gap-2">
               <Button
                 type="button"
                 size="sm"
@@ -2162,7 +2162,6 @@ function ThreeMapScene({
       <pointLight position={[0, 0, 8]} intensity={2.2} />
       {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
       {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
-      <MapControls enableRotate={false} screenSpacePanning makeDefault />
     </>
   )
 }
