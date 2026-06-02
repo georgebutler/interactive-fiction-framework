@@ -1089,6 +1089,23 @@ function getHiddenNodeTypeLabel(nodeType: StoryNodeType) {
   return labels[nodeType]
 }
 
+function getNodeTypeLabel(nodeType: StoryNodeType) {
+  const labels: Record<StoryNodeType, string> = {
+    origin: 'Starting point',
+    settlement: 'Settlement',
+    road: 'Road',
+    wilds: 'Wilds',
+    watch: 'Watchpoint',
+    crypt: 'Crypt',
+    court: 'Court',
+    ritual: 'Ritual site',
+    hazard: 'Danger',
+    mystery: 'Unknown',
+  }
+
+  return labels[nodeType]
+}
+
 function normalizeOllamaBase(endpoint: string) {
   return endpoint.replace(/\/$/, '')
 }
@@ -1280,6 +1297,36 @@ function getUnfinishedBusinessReason(state: CampaignState) {
   }
 
   return undefined
+}
+
+function getCurrentObjective(state: CampaignState) {
+  const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
+
+  if (unfinishedBusinessReason) {
+    return unfinishedBusinessReason
+  }
+
+  if (state.outcome === 'won') {
+    return 'The proof has been delivered; the hall now has to hear the dead by name.'
+  }
+
+  if (state.outcome === 'lost') {
+    return 'Tamsin can go no farther; the dead keep walking under orders no one will admit giving.'
+  }
+
+  if (state.currentEvent?.objectiveNodeId) {
+    const objectiveNode = getNode(state.currentEvent.objectiveNodeId)
+
+    return `Resolve “${state.currentEvent.name}” and move toward ${objectiveNode.publicName}.`
+  }
+
+  if (state.currentEvent) {
+    return `Resolve “${state.currentEvent.name}” before pushing deeper into the route.`
+  }
+
+  const goalNode = getNode(storySchema.goalNodeId)
+
+  return `Find proof of the lich and return to ${goalNode.publicName}.`
 }
 
 function getAdjacentTravelTargets(state: CampaignState) {
@@ -1676,8 +1723,8 @@ Rules:
 
 function StoryIcon({ id, label, className = '' }: { id: StoryIconId; label: string; className?: string }) {
   return (
-    <span className={`inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary ${className}`} aria-hidden="true">
-      <img src={storyIconAssets[id]} alt="" className="size-6 object-contain" />
+    <span className={`inline-flex size-8 shrink-0 items-center justify-center border border-foreground bg-foreground ${className}`} aria-hidden="true">
+      <img src={storyIconAssets[id]} alt="" className="size-4 object-contain invert" />
       <span className="sr-only">{label}</span>
     </span>
   )
@@ -1741,7 +1788,7 @@ function renderCodexText(
     }
 
     return (
-      <button key={`${part}-${index}`} type="button" className="inline-block cursor-pointer appearance-none border-0 bg-transparent p-0 align-baseline font-[inherit] font-bold italic leading-none text-foreground transition-colors duration-200 ease-out hover:text-primary focus-visible:outline-none focus-visible:text-primary" onClick={openReference}>
+      <button key={`${part}-${index}`} type="button" className="inline cursor-pointer appearance-none border-0 bg-transparent p-0 align-baseline font-[inherit] italic leading-none text-foreground underline decoration-foreground underline-offset-2 transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground" onClick={openReference}>
         {part}
       </button>
     )
@@ -1772,10 +1819,10 @@ function StoryTranscript({
   const references = getCodexReferences(state)
 
   return (
-    <div className="rounded-2xl border bg-background p-4 shadow-sm">
-      <div className="font-serif text-sm leading-6 tracking-normal text-foreground">
+    <div className="iff-transcript border-0 p-0 shadow-none">
+      <div className="font-serif text-base leading-8 tracking-normal text-foreground">
         {state.feed.map((entry) => (
-          <FeedBlock key={entry.id} entry={entry} state={state} references={references} onOpenCodexNode={onOpenCodexNode} onOpenCodexPerson={onOpenCodexPerson} onOpenCodexItem={onOpenCodexItem} onOpenCodex={onOpenCodex} />
+          <FeedBlock key={entry.id} entry={entry} references={references} onOpenCodexNode={onOpenCodexNode} onOpenCodexPerson={onOpenCodexPerson} onOpenCodexItem={onOpenCodexItem} onOpenCodex={onOpenCodex} />
         ))}
       </div>
     </div>
@@ -1784,7 +1831,6 @@ function StoryTranscript({
 
 function FeedBlock({
   entry,
-  state,
   references,
   onOpenCodexNode,
   onOpenCodexPerson,
@@ -1792,44 +1838,32 @@ function FeedBlock({
   onOpenCodex,
 }: {
   entry: FeedEntry
-  state: CampaignState
   references: CodexReference[]
   onOpenCodexNode: (nodeId: string) => void
   onOpenCodexPerson: (personId: string) => void
   onOpenCodexItem: (itemId: string) => void
   onOpenCodex: () => void
 }) {
-  const lines = splitFeedLines(entry.text)
-  const renderedLines = lines.length > 0 ? lines : ['']
-  const npc = state.storyNpcs.find((candidate) => candidate.name === entry.speaker)
-  const portrait = entry.kind === 'narration'
-    ? storyIconAssets.lantern
-    : entry.kind === 'action' || entry.speaker === state.player.name
-      ? state.player.portraitAsset
-      : npc
-        ? publicDomainPortraitAsset
-        : storyIconAssets.codex
-  const portraitLabel = entry.kind === 'action' ? 'Selected option' : entry.speaker ?? entry.kind
-  const portraitIsPainting = portrait === publicDomainPortraitAsset || portrait === state.player.portraitAsset
+  const lines = splitFeedLines(entry.text).filter((line) => line.trim().length > 0)
+  const isWaitingForLine = entry.revealMode === 'line-gated' && Boolean(entry.generatedText) && lines.length === 0
 
+  if (lines.length === 0 && !entry.streaming && !isWaitingForLine) {
+    return null
+  }
+
+  const renderedLines = lines.length > 0 ? lines : [entry.streaming ? 'The next passage is taking shape…' : 'Continue to reveal the next line.']
   return (
-    <section className="mb-6 last:mb-0">
+    <section className="iff-log-line mb-7 last:mb-0">
       {entry.kind === 'system' ? (
-        <div className="iff-log-line mb-3 flex items-center gap-3 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          <Separator className="flex-1" />
+        <div className="my-6 flex items-center gap-3 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <Separator className="flex-1 bg-foreground" />
           <span>{entry.text}</span>
-          <Separator className="flex-1" />
+          <Separator className="flex-1 bg-foreground" />
         </div>
       ) : null}
       {entry.kind !== 'system' ? (
-        <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-4 text-foreground sm:grid-cols-[6rem_minmax(0,1fr)]">
-          <div className="iff-log-line flex flex-col items-stretch">
-            <span className={`inline-flex h-full min-h-28 w-20 items-center justify-center overflow-hidden rounded-xl border sm:w-24 ${entry.kind === 'action' ? 'border-primary/40 bg-primary/10' : 'bg-muted'}`} title={portraitLabel}>
-              <img src={portrait} alt="" className={portraitIsPainting ? 'h-full w-full object-cover' : 'size-8 object-contain opacity-90'} />
-            </span>
-          </div>
-          <div className={entry.kind === 'action' ? 'iff-log-line rounded-xl border bg-muted/30 p-3' : 'py-1'}>
-            {entry.kind === 'action' ? <p className="mb-2 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-foreground">Selected option</p> : null}
+        <div className={entry.kind === 'action' ? 'border-l border-foreground pl-4' : ''}>
+            {entry.kind === 'action' ? <p className="mb-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your choice</p> : null}
             {renderedLines.map((line, index) => {
               const styledLine = getVisualNovelLineStyle(line)
               const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
@@ -1838,21 +1872,20 @@ function FeedBlock({
               const shouldShowSpeaker = entry.kind !== 'action' && displayedSpeaker && displayedSpeaker !== 'Narrator'
 
               return shouldShowSpeaker ? (
-                <p key={`${entry.id}-line-${index}`} className={`iff-log-line mb-1.5 grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-3 whitespace-pre-wrap text-sm leading-6 last:mb-0 ${styledLine.className}`}>
-                  <span className="truncate font-sans text-xs font-semibold uppercase tracking-[0.08em] text-foreground">{displayedSpeaker}</span>
+                <p key={`${entry.id}-line-${index}`} className={`mb-2 grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-3 whitespace-pre-wrap text-base leading-8 last:mb-0 ${styledLine.className}`}>
+                  <span className="truncate font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
                     {renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}
-                    {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
+                    {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                   </span>
                 </p>
               ) : (
-                <p key={`${entry.id}-line-${index}`} className={`iff-log-line mb-1.5 whitespace-pre-wrap text-sm leading-6 last:mb-0 ${entry.kind === 'action' && index === 0 ? 'font-medium text-foreground' : ''} ${entry.kind === 'action' && index > 0 ? 'font-serif text-foreground/80' : ''} ${styledLine.className}`}>
+                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-8 last:mb-0 ${entry.kind === 'action' && index === 0 ? 'font-medium text-foreground' : ''} ${entry.kind === 'action' && index > 0 ? 'font-serif text-muted-foreground' : ''} ${styledLine.className}`}>
                   <span>{renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}</span>
-                  {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
+                  {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                 </p>
               )
             })}
-          </div>
         </div>
       ) : null}
     </section>
@@ -1887,16 +1920,16 @@ function normalizeMapPosition(node: StoryNode): [number, number, number] {
 
 function getNodeTypeColor(nodeType: StoryNodeType) {
   const colors: Record<StoryNodeType, string> = {
-    origin: '#38bdf8',
-    settlement: '#f59e0b',
-    road: '#a3a3a3',
-    wilds: '#22c55e',
-    watch: '#818cf8',
-    crypt: '#a855f7',
-    court: '#f43f5e',
-    ritual: '#14b8a6',
-    hazard: '#ef4444',
-    mystery: '#64748b',
+    origin: '#111111',
+    settlement: '#111111',
+    road: '#555555',
+    wilds: '#111111',
+    watch: '#111111',
+    crypt: '#111111',
+    court: '#111111',
+    ritual: '#111111',
+    hazard: '#111111',
+    mystery: '#777777',
   }
 
   return colors[nodeType]
@@ -1990,7 +2023,7 @@ function ThreeMapEdge({ edge }: { edge: MapRenderEdge }) {
   return (
     <mesh position={midpoint} rotation={[0, 0, rotationZ]}>
       <cylinderGeometry args={[edge.blocked ? 0.035 : 0.025, edge.blocked ? 0.035 : 0.025, length, 8]} />
-      <meshBasicMaterial color={edge.blocked ? '#ef4444' : edge.hidden ? '#64748b' : '#94a3b8'} />
+      <meshBasicMaterial color={edge.blocked ? '#111111' : edge.hidden ? '#999999' : '#111111'} />
     </mesh>
   )
 }
@@ -2003,13 +2036,13 @@ function ThreeMapNode({ node, onSelectNode }: { node: MapRenderNode; onSelectNod
       {node.current ? (
         <mesh rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[0.54, 0.035, 12, 40]} />
-          <meshBasicMaterial color="#f8fafc" />
+          <meshBasicMaterial color="#111111" />
         </mesh>
       ) : null}
       {node.selected ? (
         <mesh rotation={[Math.PI / 2, 0, 0]}>
           <torusGeometry args={[0.72, 0.025, 12, 40]} />
-          <meshBasicMaterial color="#facc15" />
+          <meshBasicMaterial color="#111111" />
         </mesh>
       ) : null}
       {node.nodeType === 'watch' ? <CylinderGeometryNode color={color} /> : null}
@@ -2080,8 +2113,8 @@ function ThreeMapScene({ model, onSelectNode }: { model: ReturnType<typeof getMa
 
 function MapNodeTypeBadge({ nodeType }: { nodeType: StoryNodeType }) {
   return (
-    <Badge variant="outline" className="capitalize" style={{ borderColor: getNodeTypeColor(nodeType) }}>
-      {nodeType}
+    <Badge variant="outline">
+      {getNodeTypeLabel(nodeType)}
     </Badge>
   )
 }
@@ -2105,25 +2138,26 @@ function MapGraphView({
   const canTravelToSelectedNode = !selectedRenderNode.travelDisabledReason
 
   return (
-    <Card className="min-h-0 lg:h-full">
+    <Card className="iff-chrome-panel min-h-0 lg:h-full">
       <CardHeader className="shrink-0">
-        <CardTitle>Map</CardTitle>
+        <CardTitle className="text-2xl">Route atlas</CardTitle>
+        <CardDescription className="font-serif">Trace the known roads, choose a path, and return to places already marked.</CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
         <div className="grid min-h-0 gap-4 xl:h-full xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="flex min-h-0 flex-col rounded-2xl border bg-background p-4">
-            <div className="h-[min(46svh,460px)] min-h-[260px] max-h-[460px] shrink-0 overflow-hidden rounded-xl border bg-muted/20">
+          <div className="flex min-h-0 flex-col border border-foreground bg-background p-4">
+            <div className="h-[min(46svh,460px)] min-h-[260px] max-h-[460px] shrink-0 overflow-hidden border border-foreground bg-background">
               <Canvas orthographic camera={{ position: [0, 0, 12], zoom: 44 }}>
-                <color attach="background" args={['#101010']} />
+                <color attach="background" args={['#ffffff']} />
                 <ThreeMapScene model={model} onSelectNode={onSelectNode} />
               </Canvas>
             </div>
             <div className="mt-4 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1" aria-label="Map locations">
               {model.nodes.map((node) => (
-                <div key={node.id} className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                  <button type="button" className="text-left" aria-current={node.current ? 'location' : undefined} onClick={() => onSelectNode(node.id)}>
+                <div key={node.id} className="grid gap-2 border border-foreground bg-background p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <button type="button" className="text-left transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground" aria-current={node.current ? 'location' : undefined} onClick={() => onSelectNode(node.id)}>
                     <span className="block text-sm font-medium">{node.label}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{node.explored ? 'Explored' : getHiddenNodeTypeLabel(node.nodeType)}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{node.current ? 'Current location' : node.explored ? 'Known place' : getHiddenNodeTypeLabel(node.nodeType)}</span>
                   </button>
                   <MapNodeTypeBadge nodeType={node.nodeType} />
                   <Button type="button" size="sm" variant="outline" disabled={Boolean(node.travelDisabledReason)} title={node.travelDisabledReason} onClick={() => onTravelNode(node.id)}>
@@ -2134,18 +2168,18 @@ function MapGraphView({
               ))}
             </div>
           </div>
-          <aside className="min-h-0 overflow-y-auto rounded-2xl border bg-background p-4">
+          <aside className="min-h-0 overflow-y-auto border border-foreground bg-background p-4">
             <div className="flex items-start gap-3">
-              {selectedRenderNode.explored ? <StoryIcon id={selectedStoryNode.iconAssetId} label={selectedRenderNode.label} className="size-9 rounded-lg" /> : <span className="inline-flex size-9 items-center justify-center rounded-lg border bg-muted text-sm font-semibold">?</span>}
+              {selectedRenderNode.explored ? <StoryIcon id={selectedStoryNode.iconAssetId} label={selectedRenderNode.label} className="size-8" /> : <span className="inline-flex size-8 items-center justify-center border border-foreground bg-muted text-sm font-semibold">?</span>}
               <div>
                 <h3 className="text-lg font-semibold">{selectedRenderNode.label}</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <MapNodeTypeBadge nodeType={selectedRenderNode.nodeType} />
-                  {!selectedRenderNode.explored ? <Badge variant="secondary">unexplored</Badge> : null}
+                  {!selectedRenderNode.explored ? <Badge variant="secondary">unmarked</Badge> : null}
                 </div>
                 {selectedRenderNode.current ? (
                   <Badge className="mt-2" variant="secondary">
-                    current
+                    current location
                   </Badge>
                 ) : null}
               </div>
@@ -2157,7 +2191,7 @@ function MapGraphView({
               </Button>
               {selectedRenderNode.travelDisabledReason && !selectedRenderNode.current ? <p className="font-serif text-sm leading-6 text-muted-foreground">{selectedRenderNode.travelDisabledReason}</p> : null}
               {selectedRenderNode.explored ? <Button type="button" variant="outline" onClick={() => onOpenCodex(selectedRenderNode.id)}>
-                Open in codex
+                Open in journal
               </Button> : null}
             </div>
           </aside>
@@ -2167,57 +2201,63 @@ function MapGraphView({
   )
 }
 
-function PlayerPanel({ state }: { state: CampaignState }) {
+function PlayerPanel({ state, currentObjective }: { state: CampaignState; currentObjective: string }) {
   const player = state.player
   const activeNpcId = state.currentEvent?.npcTemplate?.id
+  const healthPercent = Math.max(0, Math.min(100, Math.round((player.health.current / player.health.max) * 100)))
+  const visibleInventory = player.inventory.filter((item) => item.visible)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{player.name}</CardTitle>
+    <Card className="iff-chrome-panel">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-xl">{player.name}</CardTitle>
         <CardDescription className="font-serif">{player.role}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="iff-scene-character rounded-xl border bg-background p-3">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-16 w-12 items-center justify-center overflow-hidden rounded-lg bg-primary">
-              <img src={player.portraitAsset} alt="" className="h-full w-full object-cover" />
-            </span>
-            <div>
-              <p className="text-sm font-medium">Health</p>
-              <p className="font-serif text-sm text-muted-foreground">
-                {player.health.current} / {player.health.max}
-              </p>
-            </div>
+        <section className="border-t border-foreground pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Health</h3>
+            <p className="font-serif text-sm text-muted-foreground">
+              {player.health.current} / {player.health.max}
+            </p>
           </div>
-          <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{player.backstory.want}</p>
-        </div>
-
-        <section>
-          <h3 className="text-sm font-medium">Inventory</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {player.inventory.filter((item) => item.visible).map((item) => (
-              <Badge key={item.id} variant="outline">
-                {item.name}
-              </Badge>
-            ))}
+          <div className="mt-2 h-2 border border-foreground bg-background" aria-label={`Health ${player.health.current} of ${player.health.max}`}>
+            <div className="h-full bg-foreground transition-all duration-300 ease-out" style={{ width: `${healthPercent}%` }} />
           </div>
         </section>
 
-        <section>
-          <h3 className="text-sm font-medium">Memory</h3>
-          <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{player.memory[player.memory.length - 1]}</p>
+        <section className="border-t border-foreground pt-3" aria-live="polite">
+          <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Objective</h3>
+          <p className="mt-1 font-serif text-sm leading-6 text-foreground">{currentObjective}</p>
+        </section>
+
+        <section className="border-t border-foreground pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Inventory</h3>
+            <span className="font-sans text-xs text-muted-foreground">{visibleInventory.length} carried</span>
+          </div>
+          <ul className="mt-2 list-inside list-disc font-serif text-sm leading-6 text-muted-foreground">
+            {visibleInventory.map((item) => <li key={item.id} title={item.description}>{item.name}</li>)}
+          </ul>
+        </section>
+
+        <section className="border-t border-foreground pt-3">
+          <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Story so far</h3>
+          <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{player.memory[player.memory.length - 1]}</p>
         </section>
 
         {state.storyNpcs.length > 0 ? (
-          <section className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium">Scene presence</h3>
+          <section className="flex flex-col gap-2 border-t border-foreground pt-3">
+            <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Known figures</h3>
             {state.storyNpcs.map((npc) => {
               const isInScene = npc.id === activeNpcId
 
               return (
-                <div key={npc.id} data-scene-state={isInScene ? 'present' : 'away'} className="iff-scene-character rounded-xl border bg-muted/20 p-3 transition-all duration-300 ease-out data-[scene-state=away]:translate-x-2 data-[scene-state=away]:opacity-55">
-                  <p className="font-medium">{npc.name}</p>
+                <div key={npc.id} data-scene-state={isInScene ? 'present' : 'away'} className="border-l border-foreground pl-3 data-[scene-state=away]:opacity-65">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">{npc.name}</p>
+                    {isInScene ? <span className="font-sans text-xs text-muted-foreground">nearby</span> : null}
+                  </div>
                   <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{npc.description}</p>
                 </div>
               )
@@ -2248,11 +2288,10 @@ function ChoicePanel({
     const canContinue = hasUnrevealedLines(activeLineGatedEntry)
 
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full">
-            <PlayIcon data-icon="inline-start" />
-            {canContinue ? 'Continue' : 'Waiting for next line…'}
+      <Card className="iff-chrome-panel">
+        <CardContent className="py-4">
+          <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full font-serif text-base">
+            {canContinue ? 'Turn the page' : 'Setting the next line…'}
           </Button>
         </CardContent>
       </Card>
@@ -2265,11 +2304,11 @@ function ChoicePanel({
 
   if (!state.sceneOpened || !state.currentEvent) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <Button type="button" size="lg" onClick={onBeginScene} disabled={isAdvancing} className="w-full">
+      <Card className="iff-chrome-panel">
+        <CardContent className="py-4">
+          <Button type="button" size="lg" onClick={onBeginScene} disabled={isAdvancing} className="w-full font-serif text-base">
             <PlayIcon data-icon="inline-start" />
-            {isAdvancing ? 'Generating…' : 'Begin scene'}
+            {isAdvancing ? 'Preparing the scene…' : 'Begin scene'}
           </Button>
         </CardContent>
       </Card>
@@ -2280,39 +2319,26 @@ function ChoicePanel({
   const currentEvent = state.currentEvent
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Choose how to proceed</CardTitle>
+    <Card className="iff-chrome-panel">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-2xl">Next</CardTitle>
         <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {choices.map((choice) => {
           const disabledReason = getChoiceDisabledReason(state, choice)
           const disabled = Boolean(disabledReason) || isAdvancing
+          const summaryId = `${choice.id}-summary`
+          const disabledId = `${choice.id}-disabled-reason`
+          const describedBy = [choice.optionSummary ? summaryId : undefined, disabledReason ? disabledId : undefined].filter(Boolean).join(' ') || undefined
 
           return (
-            <Button key={choice.id} type="button" variant="outline" disabled={disabled} className="h-auto justify-start whitespace-normal py-4 text-left" onClick={() => onChoose(choice)}>
+            <Button key={choice.id} type="button" variant="outline" disabled={disabled} title={disabledReason ?? choice.consequenceHint ?? choice.optionSummary ?? choice.label} aria-describedby={describedBy} className="iff-choice-card h-auto w-full justify-start whitespace-normal px-4 py-4 text-left font-serif shadow-none disabled:hover:bg-background disabled:hover:text-foreground" onClick={() => onChoose(choice)}>
               <span className="grid w-full gap-2">
-                <span className="font-medium">{choice.label}</span>
-                {choice.optionSummary ? <span className="font-serif text-sm font-normal text-muted-foreground">{choice.optionSummary}</span> : null}
-                <span className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="text-[0.65rem] uppercase tracking-[0.08em]">
-                    {choice.mode}
-                  </Badge>
-                  <Badge variant="secondary" className="text-[0.65rem] uppercase tracking-[0.08em]">
-                    {choice.tone}
-                  </Badge>
-                  {(choice.skillTags ?? []).map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-[0.65rem] uppercase tracking-[0.08em]">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {disabledReason ? (
-                    <Badge variant="outline" className="text-[0.65rem] uppercase tracking-[0.08em]">
-                      {disabledReason}
-                    </Badge>
-                  ) : null}
-                </span>
+                <span className="font-medium leading-6 text-foreground group-hover/button:text-background">{choice.label}</span>
+                {choice.optionSummary ? <span id={summaryId} className="font-serif text-sm font-normal leading-6 text-muted-foreground">{choice.optionSummary}</span> : null}
+                {choice.consequenceHint ? <span className="border-t border-foreground pt-2 font-serif text-xs font-normal leading-5 text-muted-foreground">{choice.consequenceHint}</span> : null}
+                {disabledReason ? <span id={disabledId} className="font-sans text-xs font-medium text-muted-foreground">{disabledReason}</span> : null}
               </span>
             </Button>
           )
@@ -2334,7 +2360,7 @@ function ItemTagBadge({ tag }: { tag: string }) {
     <span className="relative inline-flex">
       <button
         type="button"
-        className="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold capitalize text-foreground transition-colors duration-200 hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex items-center border border-foreground px-2.5 py-0.5 font-sans text-xs font-semibold capitalize text-foreground transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground"
         title={`${definition.summary} ${definition.detail}`}
         aria-expanded={isOpen}
         onClick={() => setIsOpen((value) => !value)}
@@ -2342,8 +2368,8 @@ function ItemTagBadge({ tag }: { tag: string }) {
         {definition.label}
       </button>
       {isOpen ? (
-        <span className="absolute left-0 top-full z-20 mt-2 w-72 rounded-xl border bg-popover p-3 text-left text-popover-foreground shadow-lg">
-          <span className="block text-xs font-semibold uppercase tracking-[0.08em]">{definition.label}</span>
+        <span className="absolute left-0 top-full z-20 mt-2 w-72 border border-foreground bg-popover p-3 text-left text-popover-foreground shadow-none">
+          <span className="block font-sans text-xs font-semibold uppercase tracking-[0.12em]">{definition.label}</span>
           <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{definition.summary}</span>
           <span className="mt-2 block font-serif text-sm leading-6">{definition.detail}</span>
         </span>
@@ -2379,15 +2405,14 @@ function CodexPanel({
   const selectedNode = exploredNodes.find((node) => node.id === selectedNodeId) ?? exploredNodes[0]
   const selectedNpc = state.storyNpcs.find((npc) => npc.id === selectedPersonId)
   const selectedItem = state.player.inventory.find((item) => item.id === selectedItemId) ?? state.player.inventory[0]
-  const seenEventNames = [...new Set(state.eventHistory.map((event) => event.name))]
-
   return (
-    <Card className="min-h-0 lg:h-full">
+    <Card className="iff-chrome-panel min-h-0 lg:h-full">
       <CardHeader className="shrink-0">
-        <CardTitle>Codex</CardTitle>
+        <CardTitle className="text-2xl">Journal</CardTitle>
+        <CardDescription className="font-serif">People, places, and keepsakes Tamsin has learned to trust.</CardDescription>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 rounded-2xl border bg-background p-4 lg:max-h-none">
+        <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 border border-foreground bg-background p-4 lg:max-h-none">
           <div className="grid grid-cols-3 gap-2">
             <Button type="button" variant={section === 'people' ? 'secondary' : 'outline'} onClick={() => onSelectSection('people')}>
               People
@@ -2430,11 +2455,11 @@ function CodexPanel({
           </div>
         </aside>
 
-        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-4 overflow-y-auto rounded-2xl border bg-background p-5 lg:max-h-none">
+        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-4 overflow-y-auto border border-foreground bg-background p-5 lg:max-h-none">
           {section === 'people' && selectedPersonId === state.player.id ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-start gap-4">
-                <span className="inline-flex h-24 w-[4.5rem] items-center justify-center overflow-hidden rounded-lg bg-primary">
+                <span className="inline-flex h-24 w-[4.5rem] items-center justify-center overflow-hidden border border-foreground bg-background">
                   <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
                 </span>
                 <div>
@@ -2451,7 +2476,7 @@ function CodexPanel({
                 <p className="mt-2">{state.player.backstory.want}</p>
               </div>
               <div>
-                <h5 className="text-sm font-medium">Skill color</h5>
+                <h5 className="text-sm font-medium">Strengths</h5>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {state.player.skillTags.map((skill) => (
                     <Badge key={skill} variant="outline">
@@ -2492,12 +2517,12 @@ function CodexPanel({
           {section === 'places' ? (
             <div>
               <div className="flex items-start gap-3">
-                <StoryIcon id={selectedNode.iconAssetId} label={selectedNode.publicName} className="size-8 rounded-md" />
+                <StoryIcon id={selectedNode.iconAssetId} label={selectedNode.publicName} className="size-8" />
                 <div>
                   <h4 className="text-lg font-semibold">{selectedNode.publicName}</h4>
                   {selectedNode.id === state.currentNodeId ? (
                     <Badge className="mt-2" variant="secondary">
-                      current
+                      current location
                     </Badge>
                   ) : null}
                 </div>
@@ -2520,22 +2545,6 @@ function CodexPanel({
               ) : null}
             </div>
           ) : null}
-
-          {seenEventNames.length > 0 ? (
-            <>
-              <Separator />
-              <section>
-                <h3 className="text-sm font-medium">Seen events</h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {seenEventNames.map((eventName) => (
-                    <Badge key={eventName} variant="secondary">
-                      {eventName}
-                    </Badge>
-                  ))}
-                </div>
-              </section>
-            </>
-          ) : null}
         </section>
       </CardContent>
     </Card>
@@ -2544,24 +2553,24 @@ function CodexPanel({
 
 function DebugPanel({ entries }: { entries: DebugEntry[] }) {
   return (
-    <Card>
+    <Card className="iff-chrome-panel">
       <CardHeader>
-        <CardTitle>Debug channel</CardTitle>
-        <CardDescription className="font-serif">Prompt traces, selected choices, generated text, and applied effects.</CardDescription>
+        <CardTitle>Diagnostics</CardTitle>
+        <CardDescription className="font-serif">Advanced session details for troubleshooting.</CardDescription>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-72">
           <div className="flex flex-col gap-3 pr-3">
-            {entries.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No traces yet.</p> : null}
+            {entries.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No diagnostic entries yet.</p> : null}
             {entries.map((entry) => (
-              <article key={entry.id} className="rounded-xl border bg-muted/20 p-3">
+              <article key={entry.id} className="border border-foreground bg-muted p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <Badge variant="outline">{entry.label ?? 'Trace'}</Badge>
                   <span className="text-xs text-muted-foreground">Turn {entry.turn}</span>
                 </div>
                 <p className="whitespace-pre-wrap font-serif text-sm leading-6 text-muted-foreground">
                   {entry.text}
-                  {entry.streaming ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
+                  {entry.streaming ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                 </p>
               </article>
             ))}
@@ -2577,6 +2586,7 @@ function App() {
   const [llmSettings, setLlmSettings] = useState(defaultLlmSettings)
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [currentView, setCurrentView] = useState<AppView>('story')
   const [codexSection, setCodexSection] = useState<CodexSection>('people')
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.currentNodeId)
@@ -2585,18 +2595,26 @@ function App() {
   const [llmError, setLlmError] = useState<string | undefined>()
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
+  const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
   const activeLineGatedEntry = useMemo(() => getActiveLineGatedEntry(campaign), [campaign])
+
+  const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      scrollAnchorRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : behavior, block: 'end' })
+    })
+  }
 
   const appendFeedEntry = (entry: Omit<FeedEntry, 'id'>) => {
     const id = createId(entry.kind)
     setCampaign((state) => ({ ...state, feed: [...state.feed, { id, ...entry }] }))
-    requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
+    scrollStoryToEnd('smooth')
     return id
   }
 
   const updateFeedEntry = (id: string, updater: (entry: FeedEntry) => FeedEntry) => {
     setCampaign((state) => ({ ...state, feed: state.feed.map((entry) => (entry.id === id ? updater(entry) : entry)) }))
-    requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
+    scrollStoryToEnd('auto')
   }
 
   const streamFeedEntry = async (entryId: string, prompt: string) => {
@@ -2688,7 +2706,7 @@ function App() {
         ],
         debugFeed: state.debugFeed,
       }))
-      requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
+      scrollStoryToEnd('smooth')
 
       const prompt = buildSceneOpeningPrompt(sceneState, event)
       appendDebugEntry({ turn, label: 'Scene opening prompt', text: prompt })
@@ -2769,7 +2787,7 @@ function App() {
       appendFeedEntry({
         turn,
         kind: 'action',
-        speaker: 'Selected option',
+        speaker: 'Your choice',
         nodeId: node.id,
         eventId: event.id,
         text: choice.optionSummary ? `${choice.label}\n${choice.optionSummary}` : choice.label,
@@ -2876,57 +2894,69 @@ function App() {
   }
 
   return (
-    <main className="min-h-svh bg-muted/30 lg:h-svh lg:overflow-hidden">
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:h-full lg:min-h-0 lg:grid-cols-[360px_minmax(0,1fr)] lg:px-8">
-        <aside className="flex min-h-0 flex-col gap-5 lg:overflow-y-auto">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">{storySchema.title}</CardTitle>
-              <CardDescription className="font-serif">Playable story framework sample</CardDescription>
+    <main className="iff-app-shell min-h-svh text-foreground lg:h-svh lg:overflow-hidden">
+      <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-4 py-6 lg:h-full lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto">
+          <Card className="iff-chrome-panel">
+            <CardHeader className="pb-2">
+              <div className="min-w-0">
+                <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Table of contents</p>
+                <CardTitle className="mt-1 text-2xl leading-tight">{storySchema.title}</CardTitle>
+                <CardDescription className="mt-2 font-serif">Now at {currentNode.publicName}</CardDescription>
+              </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  ['story', 'Story'],
-                  ['map', 'Map'],
-                  ['codex', 'Codex'],
-                  ['settings', 'Settings'],
-                ] as Array<[AppView, string]>).map(([view, label]) => (
-                  <Button key={view} type="button" variant={currentView === view ? 'secondary' : 'outline'} onClick={() => setCurrentView(view)}>
-                    {label}
-                  </Button>
-                ))}
-              </div>
+              <nav aria-label="Primary">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ['story', 'Story'],
+                    ['map', 'Map'],
+                    ['codex', 'Journal'],
+                    ['settings', 'Options'],
+                  ] as Array<[AppView, string]>).map(([view, label]) => {
+                    const isCurrentView = currentView === view
+
+                    return (
+                      <Button key={view} type="button" variant={isCurrentView ? 'default' : 'outline'} aria-current={isCurrentView ? 'page' : undefined} className="justify-start gap-2" onClick={() => setCurrentView(view)}>
+                        <span className={`size-1.5 border border-current ${isCurrentView ? 'bg-current' : 'bg-transparent'}`} />
+                        {label}
+                      </Button>
+                    )
+                  })}
+                </div>
+              </nav>
             </CardContent>
           </Card>
 
-          <PlayerPanel state={campaign} />
+          <PlayerPanel state={campaign} currentObjective={currentObjective} />
         </aside>
 
-        <section className="flex min-h-0 flex-col gap-5 lg:h-full lg:overflow-hidden">
+        <section className="flex min-h-0 flex-col gap-4 lg:h-full lg:overflow-hidden">
           {currentView === 'story' ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-5">
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
               {llmError ? (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="iff-chrome-panel">
                   <AlertCircleIcon />
-                  <AlertTitle>Local model required</AlertTitle>
-                  <AlertDescription className="font-serif">{llmError}</AlertDescription>
+                  <AlertTitle>The next passage could not be prepared</AlertTitle>
+                  <AlertDescription className="font-serif">Open Options if you want to inspect diagnostics, then try again.</AlertDescription>
                 </Alert>
               ) : null}
 
-              <Card className="min-h-0 flex-1 bg-transparent ring-0 shadow-none">
-                <CardHeader className="shrink-0">
-                  <div className="flex items-start gap-3">
-                    <StoryIcon id={currentNode.iconAssetId} label={currentNode.publicName} />
-                    <div>
-                      <CardTitle>{currentNode.publicName}</CardTitle>
-                      <CardDescription className="font-serif text-base leading-7">{currentNode.description}</CardDescription>
-                    </div>
+              <Card className="iff-stage-card min-h-0 flex-1">
+                <CardHeader className="shrink-0 border-b border-foreground pb-4">
+                  <div className="min-w-0">
+                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Current location</p>
+                    <CardTitle className="mt-1 text-3xl leading-tight">{currentNode.publicName}</CardTitle>
+                    <CardDescription className="mt-2 max-w-3xl font-serif text-base leading-7">{currentNode.description}</CardDescription>
                   </div>
                 </CardHeader>
-                <CardContent className="min-h-0 flex-1">
-                  <ScrollArea className="h-[min(64svh,640px)] min-h-0 lg:h-full">
-                    <div className="pr-3">
+                <aside className="iff-objective-card border-b border-foreground bg-muted px-4 py-3 font-serif text-sm leading-6" aria-live="polite">
+                  <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Objective</span>
+                  {currentObjective}
+                </aside>
+                <CardContent className="min-h-0 flex-1 p-0">
+                  <ScrollArea className="h-[min(58svh,620px)] min-h-0 lg:h-full">
+                    <div className="p-4 lg:p-6">
                       <StoryTranscript state={campaign} onOpenCodexNode={openCodexNode} onOpenCodexPerson={openCodexPerson} onOpenCodexItem={openCodexItem} onOpenCodex={openCodex} />
                       <div ref={scrollAnchorRef} />
                     </div>
@@ -2934,7 +2964,7 @@ function App() {
                 </CardContent>
               </Card>
 
-              <div className="shrink-0 lg:max-h-[34svh] lg:overflow-y-auto">
+              <div className="shrink-0 lg:max-h-[38svh] lg:overflow-y-auto">
                 <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
               </div>
             </div>
@@ -2959,33 +2989,55 @@ function App() {
 
           {currentView === 'settings' ? (
             <div className="min-h-0 overflow-y-auto">
-              <Card>
+              <Card className="iff-chrome-panel">
                 <CardHeader>
-                  <CardTitle>Settings</CardTitle>
-                  <CardDescription className="font-serif">Local generation and trace controls.</CardDescription>
+                  <CardTitle>Options</CardTitle>
+                  <CardDescription className="font-serif">Manage the session. Technical details stay tucked away.</CardDescription>
                 </CardHeader>
-                <CardContent className="flex max-w-xl flex-col gap-3">
-                  <label className="flex flex-col gap-1.5 text-sm font-medium">
-                    Endpoint
-                    <Input value={llmSettings.endpoint} onChange={(event) => setLlmSettings((settings) => ({ ...settings, endpoint: event.target.value }))} />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-sm font-medium">
-                    Model
-                    <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />
-                  </label>
+                <CardContent className="flex max-w-2xl flex-col gap-4">
+                  <section className="border border-foreground bg-background p-4">
+                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
+                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Restart the adventure from the beginning whenever you want a clean road.</p>
+                    <Button type="button" variant="outline" className="mt-3" onClick={resetCampaign} disabled={isAdvancing}>
+                      <RotateCcwIcon data-icon="inline-start" />
+                      Reset story
+                    </Button>
+                  </section>
+
                   <Separator />
-                  <Button type="button" variant={debugMode ? 'secondary' : 'outline'} onClick={() => setDebugMode((value) => !value)}>
-                    <EyeIcon data-icon="inline-start" />
-                    {debugMode ? 'Hide debug channel' : 'Show debug channel'}
+
+                  <Button type="button" variant="ghost" className="justify-between" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)}>
+                    Advanced diagnostics
+                    <span className="text-xs text-muted-foreground">{advancedOpen ? 'Hide' : 'Show'}</span>
                   </Button>
-                  <Button type="button" variant="outline" onClick={resetCampaign} disabled={isAdvancing}>
-                    <RotateCcwIcon data-icon="inline-start" />
-                    Reset story
-                  </Button>
+
+                  {advancedOpen ? (
+                    <section className="flex flex-col gap-3 border border-foreground bg-background p-4">
+                      <label className="flex flex-col gap-1.5 text-sm font-medium">
+                        Service endpoint
+                        <Input value={llmSettings.endpoint} onChange={(event) => setLlmSettings((settings) => ({ ...settings, endpoint: event.target.value }))} />
+                      </label>
+                      <label className="flex flex-col gap-1.5 text-sm font-medium">
+                        Runtime model
+                        <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />
+                      </label>
+                      {llmError ? (
+                        <Alert variant="destructive">
+                          <AlertCircleIcon />
+                          <AlertTitle>Diagnostic message</AlertTitle>
+                          <AlertDescription className="font-serif">{llmError}</AlertDescription>
+                        </Alert>
+                      ) : null}
+                      <Button type="button" variant={debugMode ? 'secondary' : 'outline'} onClick={() => setDebugMode((value) => !value)}>
+                        <EyeIcon data-icon="inline-start" />
+                        {debugMode ? 'Hide diagnostics' : 'Show diagnostics'}
+                      </Button>
+                    </section>
+                  ) : null}
                 </CardContent>
               </Card>
 
-              {debugMode ? <DebugPanel entries={campaign.debugFeed} /> : null}
+              {advancedOpen && debugMode ? <DebugPanel entries={campaign.debugFeed} /> : null}
             </div>
           ) : null}
         </section>
