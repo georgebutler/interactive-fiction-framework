@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { MapControls } from '@react-three/drei'
+import { Html, MapControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -1072,23 +1072,6 @@ function getNodeDistance(from: StoryNode, to: StoryNode) {
   return Math.hypot(toPosition.x - fromPosition.x, toPosition.y - fromPosition.y)
 }
 
-function getHiddenNodeTypeLabel(nodeType: StoryNodeType) {
-  const labels: Record<StoryNodeType, string> = {
-    origin: 'Known origin',
-    settlement: 'Unknown settlement',
-    road: 'Unknown road',
-    wilds: 'Unknown wilds',
-    watch: 'Distant watch',
-    crypt: 'Buried place',
-    court: 'Distant court',
-    ritual: 'Ritual site',
-    hazard: 'Hazard',
-    mystery: 'Mystery',
-  }
-
-  return labels[nodeType]
-}
-
 function getNodeTypeLabel(nodeType: StoryNodeType) {
   const labels: Record<StoryNodeType, string> = {
     origin: 'Starting point',
@@ -1623,7 +1606,6 @@ function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   return `You are the narrator of an original literary interactive fiction scene.
 
 Story: ${storySchema.title}
-Turn: ${state.turn}/${storySchema.maxTurns}
 Current place: ${node.publicName}
 Place purpose: ${node.description}
 Player character:
@@ -1960,16 +1942,17 @@ function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
   const visibleNodes = storySchema.nodes.filter((node) => visibleNodeIds.has(node.id))
   const nodes: MapRenderNode[] = visibleNodes.map((node) => {
     const isExplored = explored.has(node.id)
+    const isCurrent = node.id === state.currentNodeId
     const travelDisabledReason = getTravelDisabledReason(state, node.id)
 
     return {
       id: node.id,
-      label: isExplored ? node.publicName : getHiddenNodeTypeLabel(node.nodeType),
+      label: isExplored || isCurrent ? node.publicName : 'Unexplored',
       description: isExplored ? node.description : getNodeTypeDescription(node.nodeType),
       nodeType: node.nodeType,
       position: normalizeMapPosition(node),
       explored: isExplored,
-      current: node.id === state.currentNodeId,
+      current: isCurrent,
       selected: node.id === selectedVisibleNodeId,
       travelDisabledReason,
     }
@@ -2028,8 +2011,19 @@ function ThreeMapEdge({ edge }: { edge: MapRenderEdge }) {
   )
 }
 
-function ThreeMapNode({ node, onSelectNode }: { node: MapRenderNode; onSelectNode: (nodeId: string) => void }) {
-  const color = getNodeTypeColor(node.nodeType)
+function ThreeMapNode({
+  node,
+  onSelectNode,
+  onTravelNode,
+  onOpenCodex,
+}: {
+  node: MapRenderNode
+  onSelectNode: (nodeId: string) => void
+  onTravelNode: (nodeId: string) => void
+  onOpenCodex: (nodeId: string) => void
+}) {
+  const color = node.explored || node.current ? getNodeTypeColor(node.nodeType) : '#777777'
+  const disabledReasonId = `${node.id}-map-travel-reason`
 
   return (
     <group position={node.position} onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelectNode(node.id) }}>
@@ -2050,6 +2044,58 @@ function ThreeMapNode({ node, onSelectNode }: { node: MapRenderNode; onSelectNod
       {node.nodeType === 'hazard' ? <ConeGeometryNode color={color} /> : null}
       {node.nodeType === 'road' || node.nodeType === 'origin' ? <BoxGeometryNode color={color} /> : null}
       {node.nodeType === 'settlement' || node.nodeType === 'court' || node.nodeType === 'wilds' || node.nodeType === 'mystery' ? <SphereGeometryNode color={color} /> : null}
+      <Html position={[0, 0.86, 0]} center distanceFactor={8} style={{ pointerEvents: 'none' }}>
+        <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-foreground text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
+          {node.label}
+        </span>
+      </Html>
+      {node.selected ? (
+        <Html position={[0, 1.58, 0]} center distanceFactor={8} style={{ pointerEvents: 'auto' }}>
+          <div role="dialog" aria-label={`${node.label} details`} className="w-64 border border-foreground bg-background p-3 text-foreground shadow-none">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-sans text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Location</p>
+                <h3 className="mt-1 truncate font-serif text-lg leading-tight">{node.label}</h3>
+              </div>
+              <MapNodeTypeBadge nodeType={node.nodeType} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {node.current ? <Badge variant="secondary">current location</Badge> : null}
+              {!node.explored ? <Badge variant="secondary">unexplored</Badge> : null}
+            </div>
+            <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{node.description}</p>
+            <div className="mt-3 flex flex-col gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={Boolean(node.travelDisabledReason)}
+                title={node.travelDisabledReason}
+                aria-describedby={node.travelDisabledReason ? disabledReasonId : undefined}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onTravelNode(node.id)
+                }}
+              >
+                {node.explored ? 'Travel here' : 'Explore this route'}
+              </Button>
+              {node.travelDisabledReason && !node.current ? <p id={disabledReasonId} className="font-serif text-xs leading-5 text-muted-foreground">{node.travelDisabledReason}</p> : null}
+              {node.explored ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenCodex(node.id)
+                  }}
+                >
+                  Open in journal
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </Html>
+      ) : null}
     </group>
   )
 }
@@ -2099,13 +2145,23 @@ function OctahedronGeometryNode({ color }: { color: string }) {
   )
 }
 
-function ThreeMapScene({ model, onSelectNode }: { model: ReturnType<typeof getMapRenderModel>; onSelectNode: (nodeId: string) => void }) {
+function ThreeMapScene({
+  model,
+  onSelectNode,
+  onTravelNode,
+  onOpenCodex,
+}: {
+  model: ReturnType<typeof getMapRenderModel>
+  onSelectNode: (nodeId: string) => void
+  onTravelNode: (nodeId: string) => void
+  onOpenCodex: (nodeId: string) => void
+}) {
   return (
     <>
       <ambientLight intensity={0.9} />
       <pointLight position={[0, 0, 8]} intensity={2.2} />
       {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
-      {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} />)}
+      {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
       <MapControls enableRotate={false} screenSpacePanning makeDefault />
     </>
   )
@@ -2133,68 +2189,17 @@ function MapGraphView({
   onOpenCodex: (nodeId: string) => void
 }) {
   const model = getMapRenderModel(state, selectedNodeId)
-  const selectedRenderNode = model.nodes.find((node) => node.id === model.selectedVisibleNodeId) ?? model.nodes[0]
-  const selectedStoryNode = getNode(selectedRenderNode.id)
-  const canTravelToSelectedNode = !selectedRenderNode.travelDisabledReason
 
   return (
-    <Card className="iff-chrome-panel min-h-0 lg:h-full">
-      <CardHeader className="shrink-0">
-        <CardTitle className="text-2xl">Route atlas</CardTitle>
-        <CardDescription className="font-serif">Trace the known roads, choose a path, and return to places already marked.</CardDescription>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1">
-        <div className="grid min-h-0 gap-4 xl:h-full xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="flex min-h-0 flex-col border border-foreground bg-background p-4">
-            <div className="h-[min(46svh,460px)] min-h-[260px] max-h-[460px] shrink-0 overflow-hidden border border-foreground bg-background">
-              <Canvas orthographic camera={{ position: [0, 0, 12], zoom: 44 }}>
-                <color attach="background" args={['#ffffff']} />
-                <ThreeMapScene model={model} onSelectNode={onSelectNode} />
-              </Canvas>
-            </div>
-            <div className="mt-4 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1" aria-label="Map locations">
-              {model.nodes.map((node) => (
-                <div key={node.id} className="grid gap-2 border border-foreground bg-background p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                  <button type="button" className="text-left transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground" aria-current={node.current ? 'location' : undefined} onClick={() => onSelectNode(node.id)}>
-                    <span className="block text-sm font-medium">{node.label}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{node.current ? 'Current location' : node.explored ? 'Known place' : getHiddenNodeTypeLabel(node.nodeType)}</span>
-                  </button>
-                  <MapNodeTypeBadge nodeType={node.nodeType} />
-                  <Button type="button" size="sm" variant="outline" disabled={Boolean(node.travelDisabledReason)} title={node.travelDisabledReason} onClick={() => onTravelNode(node.id)}>
-                    {node.explored ? 'Travel' : 'Explore'}
-                  </Button>
-                  {node.travelDisabledReason && !node.current ? <p className="text-xs text-muted-foreground sm:col-span-3">{node.travelDisabledReason}</p> : null}
-                </div>
-              ))}
-            </div>
-          </div>
-          <aside className="min-h-0 overflow-y-auto border border-foreground bg-background p-4">
-            <div className="flex items-start gap-3">
-              {selectedRenderNode.explored ? <StoryIcon id={selectedStoryNode.iconAssetId} label={selectedRenderNode.label} className="size-8" /> : <span className="inline-flex size-8 items-center justify-center border border-foreground bg-muted text-sm font-semibold">?</span>}
-              <div>
-                <h3 className="text-lg font-semibold">{selectedRenderNode.label}</h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <MapNodeTypeBadge nodeType={selectedRenderNode.nodeType} />
-                  {!selectedRenderNode.explored ? <Badge variant="secondary">unmarked</Badge> : null}
-                </div>
-                {selectedRenderNode.current ? (
-                  <Badge className="mt-2" variant="secondary">
-                    current location
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-            <p className="mt-4 font-serif text-sm leading-6 text-muted-foreground">{selectedRenderNode.description}</p>
-            <div className="mt-4 flex flex-col gap-2">
-              <Button type="button" disabled={!canTravelToSelectedNode} title={selectedRenderNode.travelDisabledReason} onClick={() => onTravelNode(selectedRenderNode.id)}>
-                {selectedRenderNode.explored ? 'Travel here' : 'Explore this route'}
-              </Button>
-              {selectedRenderNode.travelDisabledReason && !selectedRenderNode.current ? <p className="font-serif text-sm leading-6 text-muted-foreground">{selectedRenderNode.travelDisabledReason}</p> : null}
-              {selectedRenderNode.explored ? <Button type="button" variant="outline" onClick={() => onOpenCodex(selectedRenderNode.id)}>
-                Open in journal
-              </Button> : null}
-            </div>
-          </aside>
+    <Card className="iff-chrome-panel min-h-0 flex-1 overflow-hidden py-0 lg:h-full">
+      <CardContent className="min-h-0 flex-1 p-0">
+        <h2 className="sr-only">Route atlas</h2>
+        <p className="sr-only">Trace known roads and select a marked place for its details.</p>
+        <div className="relative h-[min(72svh,760px)] min-h-[420px] overflow-hidden border border-foreground bg-background lg:h-full" aria-label="Interactive route atlas">
+          <Canvas orthographic camera={{ position: [0, 0, 12], zoom: 44 }}>
+            <color attach="background" args={['#ffffff']} />
+            <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />
+          </Canvas>
         </div>
       </CardContent>
     </Card>
