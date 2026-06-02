@@ -1,33 +1,36 @@
 # Interactive Fiction Framework
 
-**Interactive Fiction Framework (IFF)** is a schema-driven local AI framework for progressive text adventures.
+**Interactive Fiction Framework (IFF)** is a schema-driven local AI framework for original, contributor-authored playable stories.
 
-IFF is built around stories that unfold like a visual novel or tabletop scene viewed from the outside: the audience presses **Next**, the narrator frames the scene, characters discuss what to do, NPCs respond, and a private narrator validation decides whether the scene has been resolved.
+IFF is built around playable protagonists, agency-preserving authored options, consequence-driven dialogue, a compact codex, and local LLM narration. The reader plays a character defined by the story contributor instead of watching a party act automatically.
 
-The current sample story, **The King’s Lich**, follows three unwilling volunteers sent by King Osric to stop a lich raising an increasing number of undead.
+The current sample story, **The King’s Lich**, follows Tamsin, a gravedigger ordered by King Osric to follow opened graves back to the lich raising the dead.
 
 ## Why IFF?
 
 The goal is to make AI-assisted interactive fiction modular and remixable:
 
 - Writers define a story schema instead of hardcoding one campaign.
-- Scenes can span multiple AI turns instead of resolving immediately.
+- Contributors define the playable protagonist, health, inventory, voice, memory, and available actions.
 - Story nodes work like a hidden adventure map with weighted random events.
+- Authored choices keep state changes deterministic while local generation enriches prose.
 - NPCs are generated from templates and remembered by the codex.
-- The codex acts as both audience reference and compact LLM memory.
-- Debug mode exposes private character/narrator exchanges and scene validation.
+- The codex acts as both player reference and compact LLM memory.
+- Debug mode exposes prompts, selected choices, generated passages, and applied effects.
 - The app runs locally against Ollama, so experiments do not depend on hosted model APIs.
 
 ## Features
 
 - Progressive streamed story output
-- One-button story advancement
-- Visual novel inspired chat log
-- Modular `StorySchema` with nodes, weighted events, NPC templates, fixed rules, and codex terms
+- Playable contributor-authored protagonist
+- Structured text log with narration, NPC dialogue, neutral selected-option entries, and consequences
+- Authored choice panel with lightweight skill-color labels
+- Health points and inventory as visible story state
+- Modular `StorySchema` with player data, nodes, weighted events, NPC templates, choices, fixed rules, and codex terms
 - Explored-only SVG map graph that hides unreached routes
-- Codex with people, places, inventories, biographies, memories, and seen events
+- Codex with people, places, inventory, biography, memories, and seen events
 - Clickable codex terms inside generated text
-- Private debug narrator channel
+- Private debug channel
 - Local Ollama generation via `/api/generate`
 
 ## Getting started
@@ -79,7 +82,20 @@ IFF currently keeps the sample schema in `src/App.tsx`. The important concepts a
 
 ### `StorySchema`
 
-Defines the story title, goal node, fixed rules, public codex terms, nodes, and events.
+Defines the story title, goal node, fixed rules, public codex terms, playable protagonist, nodes, and events.
+
+### `PlayableCharacter`
+
+Defines the character the end user plays, including:
+
+- Name and role
+- Health points
+- Inventory
+- Skill-color tags
+- Voice and backstory
+- Recent memory
+
+Inventory items may include compact player-facing tags. Tag labels, summaries, and details are shown in the UI, so they should describe what the player can infer from the item rather than contributor instructions.
 
 ### `StoryNode`
 
@@ -87,9 +103,14 @@ Represents a location or map point. Each node controls:
 
 - Public name
 - Description
-- Icon
-- Hidden exits
+- Broad node type, used for map primitives and unrevealed route hints
+- Exits to connected locations
+- Optional travel blockers such as required items, cleared flags, locks, curses, or story reasons
+- Optional unfinished business that prevents travel away from the current location until authored flags, items, or active event conditions resolve it
+- Optional map position
 - Weighted event table
+
+Explored connected nodes can be travelled to directly from the map. Unexplored connected nodes appear as type-only route hints and can be explored if they are the nearest unblocked unknown route. Exact names, descriptions, codex entries, and event tables stay hidden until discovery.
 
 ### `StoryEvent`
 
@@ -99,6 +120,20 @@ Represents something that can happen at a node. Events can define:
 - Prompt pressure
 - Objective node
 - Optional NPC template
+- Authored choices
+
+### `StoryChoice`
+
+Represents an action the player can take. Choices can define:
+
+- Player-facing label
+- Neutral option summary
+- Writer intent for why the option belongs in the scene
+- Optional mode such as act, say, ask, use-item, risk, or wait
+- Action prompt for generated prose
+- Optional inventory requirement
+- Subtle skill-color tags
+- Deterministic effects such as gaining an item, losing health, remembering a fact, revealing a place, or moving on the map
 
 ### `StoryNpcTemplate`
 
@@ -106,20 +141,22 @@ Defines reusable NPCs that can enter the story and then persist in memory.
 
 ### `CampaignState`
 
-Tracks the current turn, current scene, explored nodes, known NPCs, feed entries, debug entries, codex memory, and outcome.
+Tracks the current turn, player state, current scene, explored nodes, known NPCs, feed entries, debug entries, codex memory, flags, and outcome.
 
 ## Contributing stories
 
 Story contributions are welcome. A good sample story should include:
 
 - A clear premise
-- 3–8 locations
-- Weighted events for each location
-- At least one NPC template
+- One playable protagonist with goals, weaknesses, health, inventory, voice, and memory seeds
+- 3–8 locations with public names, descriptions, node types, exits, optional blockers, optional unfinished business, optional map positions, and weighted event lists
+- Events with scene pressure, authored choices, deterministic effects, and optional NPC templates
 - Codex terms that should become clickable in generated text
 - A concrete success condition
 - A plausible risk of failure
-- A tone guide for the narrator and characters
+- Generic tone guidance for original narration, such as character-driven investigation, agency-preserving options, and consequence-driven dialogue
+
+Story contributions must be original. Do not ask the model to name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works.
 
 Good sample ideas:
 

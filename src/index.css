@@ -49,12 +49,53 @@
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100svh;
   margin: 0;
 }
 
 #root {
-  min-height: 100vh;
+  min-height: 100svh;
+}
+
+@keyframes iff-log-line-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+    filter: blur(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes iff-scene-character-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-0.45rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.iff-log-line {
+  animation: iff-log-line-enter 260ms ease-out both;
+}
+
+.iff-scene-character {
+  animation: iff-scene-character-enter 320ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iff-log-line,
+  .iff-scene-character {
+    animation: none;
+  }
 }
 
 @theme inline {

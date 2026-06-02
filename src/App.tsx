@@ -1,4 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
+import { Canvas, type ThreeEvent } from '@react-three/fiber'
+import { MapControls } from '@react-three/drei'
+import * as THREE from 'three'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -8,39 +11,82 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 
-type CharacterBackground = {
-  storyRole: string
-  home: string
+type Health = {
+  current: number
+  max: number
+}
+
+type InventoryItem = {
+  id: string
+  name: string
+  description: string
+  tags?: string[]
+  visible: boolean
+}
+
+type ItemTagDefinition = {
+  label: string
+  summary: string
+  detail: string
+}
+
+type PlayerVoice = {
+  publicStyle: string
+  innerStyle: string
+  fear: string
+  desire: string
+  contradiction: string
+}
+
+type PlayerBackstory = {
+  origin: string
+  wound: string
   want: string
-  weakness: string
-  closeTie: string
   privateKnowledge: string
-  decisionJob: string
 }
 
-type CharacterStats = {
-  body: number
-  wits: number
-  heart: number
-}
-
-type Character = {
+type PlayableCharacter = {
   id: string
   name: string
   role: string
-  personality: string
   portraitAsset: string
   color: string
-  background: CharacterBackground
-  stats: CharacterStats
-  inventory: string[]
-  currentNodeId: string
-  completed: boolean
-  health: number
+  health: Health
+  inventory: InventoryItem[]
+  skillTags: string[]
+  voice: PlayerVoice
+  backstory: PlayerBackstory
   memory: string[]
 }
 
 type StoryIconId = 'lantern' | 'road' | 'crossroads' | 'codex' | 'keep' | 'forest'
+type ChoiceTone = 'direct' | 'careful' | 'empathetic' | 'investigative' | 'reckless' | 'reflective'
+type ChoiceMode = 'act' | 'say' | 'ask' | 'use-item' | 'risk' | 'wait'
+type StoryNodeType = 'origin' | 'settlement' | 'road' | 'wilds' | 'watch' | 'crypt' | 'court' | 'ritual' | 'hazard' | 'mystery'
+
+type StoryEffect =
+  | { type: 'gainItem'; item: InventoryItem }
+  | { type: 'loseItem'; itemId: string }
+  | { type: 'damage'; amount: number; reason: string }
+  | { type: 'heal'; amount: number; reason: string }
+  | { type: 'remember'; text: string }
+  | { type: 'revealNode'; nodeId: string }
+  | { type: 'moveToNode'; nodeId: string }
+  | { type: 'setFlag'; flag: string; value: boolean }
+
+type StoryChoice = {
+  id: string
+  label: string
+  optionSummary?: string
+  writerIntent?: string
+  actionPrompt: string
+  mode: ChoiceMode
+  tone: ChoiceTone
+  skillTags?: string[]
+  requiresItemId?: string
+  consequenceHint?: string
+  effects?: StoryEffect[]
+}
 
 type StoryEvent = {
   id: string
@@ -50,6 +96,7 @@ type StoryEvent = {
   prompt: string
   objectiveNodeId?: string
   npcTemplate?: StoryNpcTemplate
+  choices: StoryChoice[]
 }
 
 type StoryNpcTemplate = {
@@ -68,13 +115,44 @@ type StoryNpc = StoryNpcTemplate & {
   memory: string[]
 }
 
+type TravelBlocker = {
+  id: string
+  label: string
+  reason: string
+  preventsTravel?: boolean
+  requiredFlag?: string
+  requiredItemId?: string
+  clearedByFlag?: string
+}
+
+type UnfinishedBusiness = {
+  id: string
+  label: string
+  reason: string
+  activeEventId?: string
+  requiredFlag?: string
+  requiredItemId?: string
+  clearedByFlag?: string
+}
+
+type StoryExit = {
+  toNodeId: string
+  label?: string
+  hiddenUntilExplored?: boolean
+  blocker?: TravelBlocker
+}
+
 type StoryNode = {
   id: string
   name: string
   publicName: string
   description: string
   iconAssetId: StoryIconId
-  nextNodeIds: string[]
+  nodeType: StoryNodeType
+  exits: StoryExit[]
+  unfinishedBusiness?: UnfinishedBusiness[]
+  nextNodeIds?: string[]
+  mapPosition?: { x: number; y: number }
   eventWeights: Array<{
     eventId: string
     weight: number
@@ -86,9 +164,10 @@ type StorySchema = {
   title: string
   goalNodeId: string
   maxTurns: number
-  authorControl: string
+  designNote: string
   fixedRules: string[]
   codexTerms: string[]
+  player: PlayableCharacter
   nodes: StoryNode[]
   events: StoryEvent[]
 }
@@ -96,9 +175,12 @@ type StorySchema = {
 type FeedEntry = {
   id: string
   turn: number
-  kind: 'narration' | 'dialogue' | 'system'
+  kind: 'narration' | 'dialogue' | 'action' | 'system'
   speaker?: string
   text: string
+  generatedText?: string
+  revealedLineCount?: number
+  revealMode?: 'immediate' | 'line-gated'
   nodeId?: string
   eventId?: string
   streaming?: boolean
@@ -107,22 +189,23 @@ type FeedEntry = {
 type DebugEntry = {
   id: string
   turn: number
-  characterName?: string
+  label?: string
   text: string
   streaming?: boolean
 }
 
 type CampaignState = {
   turn: number
-  characters: Character[]
+  player: PlayableCharacter
   storyNpcs: StoryNpc[]
   currentNodeId: string
   currentEvent?: StoryEvent
-  currentEventStartedTurn?: number
+  sceneOpened: boolean
   exploredNodeIds: string[]
   eventHistory: StoryEvent[]
   feed: FeedEntry[]
   debugFeed: DebugEntry[]
+  flags: Record<string, boolean>
   outcome: 'running' | 'won' | 'lost'
 }
 
@@ -132,11 +215,11 @@ type LlmSettings = {
 }
 
 type AppView = 'story' | 'map' | 'codex' | 'settings'
-type CodexSection = 'people' | 'places'
+type CodexSection = 'people' | 'places' | 'inventory'
 
 type CodexReference = {
   term: string
-  type: 'place' | 'person' | 'term'
+  type: 'place' | 'person' | 'item' | 'term'
   targetId?: string
 }
 
@@ -149,30 +232,180 @@ const storyIconAssets: Record<StoryIconId, string> = {
   forest: '/icons/ffffff/transparent/1x1/delapouite/forest.svg',
 }
 
+// Public domain / CC0 image from The Metropolitan Museum of Art Open Access:
+// Fra Filippo Lippi, "Portrait of a Woman with a Man at a Casement", object 436896.
+const publicDomainPortraitAsset = '/portraits/fra-filippo-lippi-portrait-public-domain.jpg'
+
+const itemTagDefinitions: Record<string, ItemTagDefinition> = {
+  tool: {
+    label: 'Tool',
+    summary: 'A practical object for changing the environment.',
+    detail: 'Useful for lifting, cutting, prying, digging, fixing, or improvising.',
+  },
+  ward: {
+    label: 'Ward',
+    summary: 'An object meant to resist hostile pressure.',
+    detail: 'May help repel, delay, blind, seal, or weaken a threat.',
+  },
+  iron: {
+    label: 'Iron',
+    summary: 'A material with weight against uncanny forces.',
+    detail: 'May matter for binding, cutting, grounding, or containment.',
+  },
+  proof: {
+    label: 'Proof',
+    summary: 'Evidence that can change what people accept.',
+    detail: 'Can support claims, unlock testimony, earn trust, or pressure officials.',
+  },
+  authority: {
+    label: 'Authority',
+    summary: 'An object that carries official force.',
+    detail: 'Can demand access, shelter, answers, obedience, or accountability.',
+  },
+  salvage: {
+    label: 'Salvage',
+    summary: 'Imperfect material made useful by improvisation.',
+    detail: 'Useful for repairs, substitutions, traps, or desperate plans.',
+  },
+  ritual: {
+    label: 'Ritual',
+    summary: 'An item with ceremonial relevance.',
+    detail: 'Relevant to rites, symbols, names, vows, witnesses, or proper sequence.',
+  },
+  silver: {
+    label: 'Silver',
+    summary: 'A material that may matter to value, purity, or rites.',
+    detail: 'May help when resonance, formality, or symbolic weight matters.',
+  },
+}
+
+const graveSpade: InventoryItem = {
+  id: 'grave-spade',
+  name: 'grave spade',
+  description: 'A working tool with a polished haft and a nicked iron edge. Tamsin trusts it more than court steel.',
+  tags: ['tool'],
+  visible: true,
+}
+
+const graveAsh: InventoryItem = {
+  id: 'grave-ash',
+  name: 'grave ash',
+  description: 'A stoppered pouch of ash gathered from consecrated soil. It can blind the dead for a few breaths.',
+  tags: ['ward', 'ritual'],
+  visible: true,
+}
+
+const ironNails: InventoryItem = {
+  id: 'iron-nails',
+  name: 'iron nails',
+  description: 'A palmful of coffin nails. They still remember the shape of a shut door.',
+  tags: ['iron', 'ward'],
+  visible: true,
+}
+
+const royalWrit: InventoryItem = {
+  id: 'royal-writ',
+  name: 'royal writ',
+  description: 'King Osric’s command, stamped in red wax. It opens gates and closes excuses.',
+  tags: ['proof', 'authority'],
+  visible: true,
+}
+
+const betterKnife: InventoryItem = {
+  id: 'armory-knife',
+  name: 'armory knife',
+  description: 'A narrow knife with honest balance. Not heroic, but useful when knots, straps, or hands must be cut free.',
+  tags: ['iron', 'tool'],
+  visible: true,
+}
+
+const crackedSpearHead: InventoryItem = {
+  id: 'cracked-spear-head',
+  name: 'cracked spearhead',
+  description: 'Salvaged from a weapon too poor to carry whole. It is still iron, and iron still has opinions about the dead.',
+  tags: ['iron', 'salvage'],
+  visible: true,
+}
+
+const bellClapper: InventoryItem = {
+  id: 'bell-clapper',
+  name: 'silver bell clapper',
+  description: 'The missing tongue of an old burial bell, dark with age and bright where Tamsin rubbed it clean.',
+  tags: ['ritual', 'silver'],
+  visible: true,
+}
+
+const boneCharm: InventoryItem = {
+  id: 'bone-charm',
+  name: 'bone charm',
+  description: 'A fingerbone wrapped in silver wire. It is proof, prison, and accusation all at once.',
+  tags: ['proof', 'ritual'],
+  visible: true,
+}
+
 const storySchema: StorySchema = {
-  id: 'lich-volunteers-schema',
+  id: 'kings-lich-playable',
   title: 'The King’s Lich',
   goalNodeId: 'king-return',
   maxTurns: 14,
-  authorControl:
-    'A story writer can replace this schema with a tiny one-shot or a large campaign. Nodes decide which weighted events can happen, what nearby paths exist, and how much of the route the audience is allowed to see.',
+  designNote:
+    'A contributor-authored playable story about agency-preserving narration, original scenes, varied authored choices, and lightweight consequences. The local model narrates within the schema; code owns state.',
   fixedRules: [
-    'The end user watches from outside the fiction and does not choose character actions.',
-    'The Next button advances the current scene: narrator framing, private character questions, visible character interaction, then private narrator validation.',
-    'A scene can span multiple Next presses and resolves only when the characters converge on a concrete plan the narrator accepts.',
-    'Private narrator exchanges can influence characters, but are hidden unless debug mode is enabled.',
-    'The codex is compact known story memory. The narrator and characters can reference what has been revealed so far.',
-    'Unexplored story nodes and their weighted event tables are writer-owned hidden structure, not public spoilers.',
+    'The end user plays the authored protagonist directly.',
+    'Authored choices decide what the protagonist can attempt; generated prose may enrich but cannot override mechanical state.',
+    'Health and inventory are visible story state and change only through authored effects.',
+    'The codex is compact known memory for the player and the local narrator.',
+    'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
+    'All story material and style guidance must remain original and generic, without named protected references.',
   ],
-  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Barrow Crypt', 'Graymere Hall', 'iron spear', 'silver bell', 'grave ash', 'King’s Writ', 'the lich'],
+  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Barrow Crypt', 'Graymere Hall', 'grave spade', 'grave ash', 'iron nails', 'royal writ', 'the lich'],
+  player: {
+    id: 'tamsin',
+    name: 'Tamsin',
+    role: 'Gravedigger under royal order',
+    portraitAsset: publicDomainPortraitAsset,
+    color: '#7dd3fc',
+    health: { current: 20, max: 20 },
+    inventory: [graveSpade, graveAsh, ironNails, royalWrit],
+    skillTags: ['grave-lore', 'plain-speech', 'steady-hands'],
+    voice: {
+      publicStyle: 'dry, practical, and too familiar with death to flatter anyone',
+      innerStyle: 'watchful, restrained, bitterly funny when fear gets close',
+      fear: 'being spent by powerful people who will misname it courage',
+      desire: 'to put the dead back down and return to work that makes sense',
+      contradiction: 'she respects burial rites but distrusts anyone who turns sacrifice into policy',
+    },
+    backstory: {
+      origin: 'Tamsin digs graves outside Redvale and was taken by levy because she knows the dead too well.',
+      wound: 'She has buried neighbors for orders written by people who never learned their names.',
+      want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
+      privateKnowledge: 'Grave ash can blind a corpse for a few breaths if thrown into its eyes or mouth.',
+    },
+    memory: ['The king called it service because he could not bear to call it fear.'],
+  },
   nodes: [
     {
       id: 'graymere-yard',
       name: 'Graymere Yard',
       publicName: 'Graymere Hall',
-      description: 'The king’s muddy courtyard, where three unwilling volunteers are handed bad weapons and worse orders.',
+      description: 'The muddy seat of King Osric, where orders sound cleaner than the roads they create.',
       iconAssetId: 'road',
+      nodeType: 'origin',
+      exits: [
+        { toNodeId: 'ash-farms', label: 'Follow the opened graves' },
+        { toNodeId: 'old-watchtower', label: 'Take the high road toward old rites' },
+      ],
+      unfinishedBusiness: [
+        {
+          id: 'answer-royal-order',
+          label: 'Answer the royal order',
+          reason: 'Tamsin needs to answer King Osric’s order before leaving Graymere Hall.',
+          activeEventId: 'royal-order',
+          clearedByFlag: 'royal-order-answered',
+        },
+      ],
       nextNodeIds: ['ash-farms', 'old-watchtower'],
+      mapPosition: { x: 300, y: 520 },
       eventWeights: [
         { eventId: 'royal-order', weight: 8 },
         { eventId: 'bad-equipment', weight: 3 },
@@ -183,9 +416,16 @@ const storySchema: StorySchema = {
       id: 'ash-farms',
       name: 'Ash Farms',
       publicName: 'Ash Farms',
-      description: 'Sickly fields outside Redvale, where frightened farmers count fresh graves and missing names.',
+      description: 'Sickly fields outside Redvale, where fresh graves keep opening and farmers count names under their breath.',
       iconAssetId: 'crossroads',
-      nextNodeIds: ['blackpine-road', 'old-watchtower'],
+      nodeType: 'settlement',
+      exits: [
+        { toNodeId: 'graymere-yard', label: 'Return to the king’s road' },
+        { toNodeId: 'blackpine-road', label: 'Follow the grave-road into the pines' },
+        { toNodeId: 'old-watchtower', label: 'Cut across the high fields' },
+      ],
+      nextNodeIds: ['graymere-yard', 'blackpine-road', 'old-watchtower'],
+      mapPosition: { x: 180, y: 385 },
       eventWeights: [
         { eventId: 'burned-field', weight: 8 },
         { eventId: 'village-plea', weight: 3 },
@@ -196,9 +436,17 @@ const storySchema: StorySchema = {
       id: 'old-watchtower',
       name: 'Old Watchtower',
       publicName: 'Old Watchtower',
-      description: 'A leaning stone tower where the volunteers can look for the lich’s route before committing themselves.',
+      description: 'A leaning tower where old rites, bad maps, and worse advice have survived the weather.',
       iconAssetId: 'codex',
-      nextNodeIds: ['blackpine-road', 'barrow-crypt'],
+      nodeType: 'watch',
+      exits: [
+        { toNodeId: 'graymere-yard', label: 'Descend toward Graymere Hall' },
+        { toNodeId: 'ash-farms', label: 'Cross back toward the fields' },
+        { toNodeId: 'blackpine-road', label: 'Take the marked road under the pines' },
+        { toNodeId: 'barrow-crypt', label: 'Follow the tower map toward the barrow' },
+      ],
+      nextNodeIds: ['graymere-yard', 'ash-farms', 'blackpine-road', 'barrow-crypt'],
+      mapPosition: { x: 420, y: 385 },
       eventWeights: [
         { eventId: 'hermit-warning', weight: 7 },
         { eventId: 'bad-equipment', weight: 2 },
@@ -209,9 +457,16 @@ const storySchema: StorySchema = {
       id: 'blackpine-road',
       name: 'Blackpine Road',
       publicName: 'Blackpine Road',
-      description: 'A cramped forest road where carts lie split, horses refuse to move, and cold grave mist hangs between the trees.',
+      description: 'A cramped forest road where carts lie split and grave-cold mist hangs between the pines.',
       iconAssetId: 'forest',
-      nextNodeIds: ['barrow-crypt'],
+      nodeType: 'hazard',
+      exits: [
+        { toNodeId: 'ash-farms', label: 'Return by the farm track' },
+        { toNodeId: 'old-watchtower', label: 'Climb back toward the tower' },
+        { toNodeId: 'barrow-crypt', label: 'Press through the grave mist' },
+      ],
+      nextNodeIds: ['ash-farms', 'old-watchtower', 'barrow-crypt'],
+      mapPosition: { x: 285, y: 250 },
       eventWeights: [
         { eventId: 'grave-mist', weight: 8 },
         { eventId: 'bandit-toll', weight: 3 },
@@ -222,210 +477,515 @@ const storySchema: StorySchema = {
       id: 'barrow-crypt',
       name: 'Barrow Crypt',
       publicName: 'Barrow Crypt',
-      description: 'The lich’s buried hall, cold with old bones, stolen bells, and a deathless ruler raising more dead by the hour.',
+      description: 'The lich’s buried hall, cold with old bones, stolen bells, and a ruler who has forgotten how to die.',
       iconAssetId: 'keep',
-      nextNodeIds: ['king-return'],
+      nodeType: 'crypt',
+      exits: [
+        { toNodeId: 'old-watchtower', label: 'Retreat by the tower path' },
+        { toNodeId: 'blackpine-road', label: 'Return through Blackpine Road' },
+        {
+          toNodeId: 'king-return',
+          label: 'Return to court with proof',
+          blocker: {
+            id: 'proof-required',
+            label: 'Proof required',
+            reason: 'Returning to court empty-handed would give the king another order, not proof. Tamsin needs something that can accuse the lich in public.',
+            requiredItemId: 'bone-charm',
+          },
+        },
+      ],
+      nextNodeIds: ['old-watchtower', 'blackpine-road', 'king-return'],
+      mapPosition: { x: 300, y: 110 },
       eventWeights: [
         { eventId: 'lich-ritual', weight: 10 },
-        { eventId: 'phylactery-glimpse', weight: 3 },
+        { eventId: 'bone-charm-glimpse', weight: 3 },
       ],
     },
     {
       id: 'king-return',
       name: 'King Return',
-      publicName: 'Graymere Hall',
-      description: 'The return to King Osric, where survival must become proof and the lich’s end must be believed.',
+      publicName: 'Graymere Hall Return',
+      description: 'The return to King Osric, where survival must become proof and proof must become a sentence.',
       iconAssetId: 'lantern',
-      nextNodeIds: [],
-      eventWeights: [
-        { eventId: 'royal-proof', weight: 10 },
-      ],
+      nodeType: 'court',
+      exits: [{ toNodeId: 'barrow-crypt', label: 'Go back toward the barrow road' }],
+      nextNodeIds: ['barrow-crypt'],
+      mapPosition: { x: 470, y: 65 },
+      eventWeights: [{ eventId: 'royal-proof', weight: 10 }],
     },
   ],
   events: [
     {
       id: 'royal-order',
-      name: 'The king names his volunteers',
+      name: 'The king spends a gravedigger',
       weight: 4,
       iconAssetId: 'road',
-      prompt: 'King Osric orders three ordinary people to stop the lich because every trained knight sent into the barrows has returned as undead or not at all.',
+      prompt: 'King Osric gives Tamsin a stamped writ and commands her to follow the opened graves back to their master.',
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
         id: 'king-osric',
         name: 'King Osric',
         role: 'Tired king',
-        description: 'A thin, sleepless ruler in a patched crown who talks like command is the only tool he has left.',
-        voice: 'formal, clipped, ashamed when pressed, and impatient with delay',
-        want: 'Send someone, anyone, to stop the lich before the undead around Redvale outnumber the living.',
-        knows: 'The lich works from the old barrows beyond Blackpine Road, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
+        description: 'A thin ruler in a patched crown who has slept badly enough to mistake command for courage.',
+        voice: 'formal, clipped, ashamed when pressed, impatient with delay',
+        want: 'Send someone to stop the lich before the dead around Redvale outnumber the living.',
+        knows: 'The old barrows beyond Blackpine Road are the source, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
       },
+      choices: [
+        {
+          id: 'make-king-name-cost',
+          label: 'Make the king name what he is asking of you',
+          optionSummary: 'Press for plain accountability instead of accepting the order silently.',
+          writerIntent: 'Offer a direct social option that challenges power without choosing exact words for the player.',
+          actionPrompt: 'The selected option is to press King Osric to speak plainly about sending a gravedigger where trained knights failed.',
+          mode: 'ask',
+          tone: 'direct',
+          skillTags: ['plain-speech'],
+          consequenceHint: 'The king resents the question but gives clearer information about the road east.',
+          effects: [
+            { type: 'setFlag', flag: 'royal-order-answered', value: true },
+            { type: 'remember', text: 'King Osric admitted the barrows beyond Blackpine Road are the source of the rising dead.' },
+            { type: 'revealNode', nodeId: 'ash-farms' },
+            { type: 'moveToNode', nodeId: 'ash-farms' },
+          ],
+        },
+        {
+          id: 'inspect-writ',
+          label: 'Study the royal writ for what it can force open',
+          optionSummary: 'Look for practical authority the writ grants before leaving the hall.',
+          writerIntent: 'Offer an investigative alternative that treats royal authority as a tool, not a feeling.',
+          actionPrompt: 'The selected option is to study the royal writ for practical access, demands, and obligations it can create.',
+          mode: 'act',
+          tone: 'investigative',
+          skillTags: ['grave-lore'],
+          consequenceHint: 'The writ becomes a practical key for frightened gates and stubborn officials.',
+          effects: [
+            { type: 'setFlag', flag: 'royal-order-answered', value: true },
+            { type: 'remember', text: 'The royal writ can demand shelter, testimony, and access to sealed roads.' },
+            { type: 'revealNode', nodeId: 'old-watchtower' },
+            { type: 'moveToNode', nodeId: 'old-watchtower' },
+          ],
+        },
+      ],
     },
     {
       id: 'bad-equipment',
-      name: 'Bad weapons from the armory',
+      name: 'The armory offers insult as steel',
       weight: 5,
       iconAssetId: 'lantern',
-      prompt: 'The volunteers discover their issued weapons are cheap, old, and badly matched to fighting walking corpses and a deathless sorcerer.',
+      prompt: 'The armory clerk gives Tamsin a spear with a split shaft and waits for her to accept the insult quietly.',
       objectiveNodeId: 'old-watchtower',
+      choices: [
+        {
+          id: 'demand-usable-iron',
+          label: 'Demand usable iron before leaving',
+          optionSummary: 'Turn the bad equipment into a public problem the clerk has to answer.',
+          writerIntent: 'Give the player a forceful speech-intent option that improves preparation.',
+          actionPrompt: 'The selected option is to press the armory clerk for gear that will not fail at the first dead hand.',
+          mode: 'say',
+          tone: 'direct',
+          skillTags: ['plain-speech'],
+          consequenceHint: 'The clerk yields something small but honest rather than keep arguing in public.',
+          effects: [
+            { type: 'gainItem', item: betterKnife },
+            { type: 'remember', text: 'Tamsin forced the armory to admit the first weapon was meant for someone disposable.' },
+            { type: 'moveToNode', nodeId: 'old-watchtower' },
+          ],
+        },
+        {
+          id: 'salvage-spear-head',
+          label: 'Salvage the spearhead and leave the shaft behind',
+          optionSummary: 'Take the only useful part and avoid giving the clerk another opening to posture.',
+          writerIntent: 'Offer a quiet practical option that converts bad gear into a useful item.',
+          actionPrompt: 'The selected option is to strip useful iron from the broken spear and leave the useless shaft behind.',
+          mode: 'act',
+          tone: 'careful',
+          skillTags: ['steady-hands'],
+          consequenceHint: 'The court barely notices, but Tamsin leaves with a piece of iron she can trust.',
+          effects: [
+            { type: 'gainItem', item: crackedSpearHead },
+            { type: 'moveToNode', nodeId: 'old-watchtower' },
+          ],
+        },
+      ],
     },
     {
       id: 'village-plea',
-      name: 'Redvale begs for proof',
+      name: 'A farmer asks which kind of mercy this is',
       weight: 3,
       iconAssetId: 'crossroads',
-      prompt: 'Villagers ask whether the volunteers are truly going to help or just walking out to join the dead.',
+      prompt: 'A farmer blocks the road with a child behind him and asks whether Tamsin has come to bury the village or save it.',
       objectiveNodeId: 'ash-farms',
+      npcTemplate: {
+        id: 'farmer-riel',
+        name: 'Farmer Riel',
+        role: 'Frightened father',
+        description: 'A raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
+        voice: 'plain, guarded, angry from fear',
+        want: 'Know whether Tamsin brings help or another royal lie.',
+        knows: 'Three graves opened behind his byre after a bell rang under the hill.',
+      },
+      choices: [
+        {
+          id: 'answer-with-truth',
+          label: 'Answer him with the truth you can afford',
+          optionSummary: 'Give a limited honest answer and leave room for what is still unknown.',
+          writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
+          actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
+          mode: 'say',
+          tone: 'empathetic',
+          skillTags: ['plain-speech'],
+          consequenceHint: 'Honesty does not comfort him, but it gives him a reason to share what he heard.',
+          effects: [
+            { type: 'remember', text: 'A bell rang beneath the hill before the Ash Farms graves opened.' },
+            { type: 'moveToNode', nodeId: 'ash-farms' },
+          ],
+        },
+        {
+          id: 'show-writ',
+          label: 'Show the royal writ and ask for the first opened grave',
+          optionSummary: 'Use official authority to focus the exchange on a concrete lead.',
+          writerIntent: 'Offer an authority-backed investigative option that may create distrust but gains direction.',
+          actionPrompt: 'The selected option is to show the royal writ as authority to demand a path to the first disturbed grave.',
+          mode: 'ask',
+          tone: 'investigative',
+          requiresItemId: 'royal-writ',
+          consequenceHint: 'The farmer distrusts the seal but points her toward the first sign.',
+          effects: [
+            { type: 'remember', text: 'The first opened grave at Ash Farms belonged to a bell-ringer buried without his clapper.' },
+            { type: 'moveToNode', nodeId: 'ash-farms' },
+          ],
+        },
+      ],
     },
     {
       id: 'burned-field',
-      name: 'A field full of open graves',
+      name: 'The field has too many open mouths',
       weight: 2,
       iconAssetId: 'forest',
-      prompt: 'The party reaches a farm where old graves have opened and someone is hiding in a root cellar from the dead.',
+      prompt: 'Tamsin reaches a farm where old graves gape open and someone is trapped beneath a root cellar door.',
       objectiveNodeId: 'blackpine-road',
       npcTemplate: {
         id: 'miller-joan',
         name: 'Miller Joan',
         role: 'Injured farmer',
-        description: 'A mud-covered miller with a shaking lantern and no patience for heroic speeches.',
+        description: 'A mud-covered miller with a shaking lantern and no patience for ceremonial courage.',
         voice: 'plain, angry, frightened, and practical',
         want: 'Get her brother out of the root cellar before the dead find the door.',
         knows: 'The dead came from the east after the bell rang under the hill, and one corpse still wore a royal tabard.',
       },
+      choices: [
+        {
+          id: 'seal-cellar-with-nails',
+          label: 'Use iron nails to hold the cellar shut',
+          optionSummary: 'Spend the nails to buy time and control the rescue.',
+          writerIntent: 'Offer a careful item-use option that trades inventory for safety.',
+          actionPrompt: 'The selected option is to brace the cellar door with coffin nails and coordinate when the people below should move.',
+          mode: 'use-item',
+          tone: 'careful',
+          skillTags: ['steady-hands'],
+          requiresItemId: 'iron-nails',
+          consequenceHint: 'The nails buy enough time to pull the trapped man free without drawing every corpse at once.',
+          effects: [
+            { type: 'loseItem', itemId: 'iron-nails' },
+            { type: 'remember', text: 'Miller Joan saw a corpse in royal colors among the dead from the east.' },
+            { type: 'moveToNode', nodeId: 'blackpine-road' },
+          ],
+        },
+        {
+          id: 'throw-grave-ash',
+          label: 'Throw grave ash into the nearest dead face',
+          optionSummary: 'Spend the ash for a fast opening, accepting that close work may hurt.',
+          writerIntent: 'Offer a risky item-use option with a clear cost.',
+          actionPrompt: 'The selected option is to spend grave ash to blind the nearest corpse long enough to open the root cellar.',
+          mode: 'use-item',
+          tone: 'reckless',
+          skillTags: ['grave-lore'],
+          requiresItemId: 'grave-ash',
+          consequenceHint: 'The ash works, but close work among the dead leaves bruises and torn skin.',
+          effects: [
+            { type: 'loseItem', itemId: 'grave-ash' },
+            { type: 'damage', amount: 2, reason: 'The dead clawed close while the cellar opened.' },
+            { type: 'remember', text: 'Grave ash can blind the dead, but only for moments.' },
+            { type: 'moveToNode', nodeId: 'blackpine-road' },
+          ],
+        },
+      ],
     },
     {
       id: 'hermit-warning',
-      name: 'The hermit knows the old burial rite',
+      name: 'The tower keeps an ugly rite',
       weight: 5,
       iconAssetId: 'codex',
-      prompt: 'A hermit at the old watchtower claims the lich can be stopped only if its bone charm is found and the burial bell is rung.',
+      prompt: 'A hermit at the old watchtower claims the lich can be stopped only if its bone charm is found and the burial bell is made whole.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'old-perrin',
         name: 'Old Perrin',
         role: 'Tower hermit',
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
-        voice: 'rasping, blunt, and fond of ugly truths',
-        want: 'Convince the volunteers that bravery without a rite will only add three fresh bodies to the lich’s host.',
-        knows: 'The lich hides its soul in a bone charm near a silver burial bell, and grave ash can briefly blind the dead.',
+        voice: 'rasping, blunt, fond of ugly truths',
+        want: 'Convince Tamsin that courage without a rite will only add a fresh body to the lich’s host.',
+        knows: 'The lich hides its soul in a bone charm near a silver burial bell, and the bell lacks its clapper.',
       },
+      choices: [
+        {
+          id: 'trade-for-rite',
+          label: 'Trade plain answers for the burial rite',
+          optionSummary: 'Treat the hermit as a bargainer and exchange facts for instructions.',
+          writerIntent: 'Offer a direct social option that rewards candor with ritual knowledge.',
+          actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
+          mode: 'say',
+          tone: 'direct',
+          skillTags: ['plain-speech'],
+          consequenceHint: 'The hermit respects a bargain with edges and gives her the missing clapper.',
+          effects: [
+            { type: 'gainItem', item: bellClapper },
+            { type: 'remember', text: 'The burial bell must be made whole before the bone charm can be broken.' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+        {
+          id: 'read-the-tower-marks',
+          label: 'Read the burial marks carved into the tower stair',
+          optionSummary: 'Rely on physical evidence instead of the hermit’s performance.',
+          writerIntent: 'Offer an investigative option that uses the protagonist’s grave knowledge.',
+          actionPrompt: 'The selected option is to study the old burial marks carved into the tower stairwell for usable instructions.',
+          mode: 'act',
+          tone: 'investigative',
+          skillTags: ['grave-lore'],
+          consequenceHint: 'The marks confirm the rite and show where the barrow path begins.',
+          effects: [
+            { type: 'remember', text: 'The barrow rite binds bell, bone charm, and grave name together.' },
+            { type: 'revealNode', nodeId: 'barrow-crypt' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+      ],
     },
     {
       id: 'grave-mist',
-      name: 'The grave mist turns fresh',
+      name: 'The mist learns to listen',
       weight: 6,
       iconAssetId: 'forest',
-      prompt: 'Fresh grave mist and broken pines show the undead are close enough to hear if anyone speaks too loudly.',
+      prompt: 'Fresh grave mist and broken pines show the undead are close enough to hear careless breath.',
       objectiveNodeId: 'barrow-crypt',
+      choices: [
+        {
+          id: 'mark-safe-path',
+          label: 'Mark a quiet path with the grave spade',
+          optionSummary: 'Use the spade as a practical tool to test ground and choose a safer route.',
+          writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
+          actionPrompt: 'The selected option is to use the grave spade to test soft earth and mark a path where the mist lies thinnest.',
+          mode: 'use-item',
+          tone: 'careful',
+          skillTags: ['grave-lore', 'steady-hands'],
+          requiresItemId: 'grave-spade',
+          consequenceHint: 'The route avoids the worst of the listening dead.',
+          effects: [
+            { type: 'remember', text: 'The grave mist thickens around disturbed royal dead.' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+        {
+          id: 'run-through-mist',
+          label: 'Run before the mist closes',
+          optionSummary: 'Trade safety for speed before the dead fully gather.',
+          writerIntent: 'Offer a high-risk option with health cost and fast movement.',
+          actionPrompt: 'The selected option is to choose speed over silence and break through the mist before the dead fully gather.',
+          mode: 'risk',
+          tone: 'reckless',
+          consequenceHint: 'She reaches the barrow road, but the mist takes its price from her breath and skin.',
+          effects: [
+            { type: 'damage', amount: 3, reason: 'The grave mist burned cold where it touched living skin.' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+      ],
     },
     {
       id: 'bandit-toll',
-      name: 'Bandits block the road',
+      name: 'Deserters ask the dead country for rent',
       weight: 2,
       iconAssetId: 'crossroads',
-      prompt: 'Hungry deserters demand the volunteers hand over food and weapons before entering the dead country.',
+      prompt: 'Hungry deserters demand Tamsin hand over food, tools, and the writ before entering the dead country.',
       objectiveNodeId: 'barrow-crypt',
+      npcTemplate: {
+        id: 'sergeant-maud',
+        name: 'Sergeant Maud',
+        role: 'Deserter with a borrowed sword',
+        description: 'A hollow-cheeked veteran whose shame has hardened into toll-taking.',
+        voice: 'dry, threatening, tired beneath the threat',
+        want: 'Take enough from travelers to keep her deserters alive another week.',
+        knows: 'The royal dead walk first when the bell sounds, as if old commands still pull them upright.',
+      },
+      choices: [
+        {
+          id: 'show-royal-dead-truth',
+          label: 'Tell the deserters what walks in royal colors',
+          optionSummary: 'Use the deserters’ own fear and experience to make the roadblock feel pointless.',
+          writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
+          actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
+          mode: 'say',
+          tone: 'direct',
+          skillTags: ['plain-speech'],
+          consequenceHint: 'The deserters do not become kind, but they stop blocking the road.',
+          effects: [
+            { type: 'remember', text: 'The lich may be raising royal dead first because old commands still cling to them.' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+        {
+          id: 'trade-knife-for-passage',
+          label: 'Trade the armory knife for quiet passage',
+          optionSummary: 'Give up a useful object to avoid violence and keep moving.',
+          writerIntent: 'Offer a careful inventory trade that avoids a fight.',
+          actionPrompt: 'The selected option is to trade the armory knife for passage without a fight.',
+          mode: 'use-item',
+          tone: 'careful',
+          requiresItemId: 'armory-knife',
+          consequenceHint: 'The deserters accept the trade and point out the safest turn toward the barrows.',
+          effects: [
+            { type: 'loseItem', itemId: 'armory-knife' },
+            { type: 'heal', amount: 1, reason: 'Avoiding the fight preserves strength.' },
+            { type: 'moveToNode', nodeId: 'barrow-crypt' },
+          ],
+        },
+      ],
     },
     {
-      id: 'phylactery-glimpse',
-      name: 'The bone charm shows',
+      id: 'bone-charm-glimpse',
+      name: 'The bone charm shows itself',
       weight: 4,
       iconAssetId: 'keep',
-      prompt: 'The lich turns toward its ritual, revealing a bone charm threaded with silver wire beneath its robes.',
+      prompt: 'The lich turns toward its ritual, revealing a fingerbone charm threaded with silver wire beneath its robes.',
       objectiveNodeId: 'king-return',
+      choices: [
+        {
+          id: 'hook-charm-with-spade',
+          label: 'Hook the bone charm with the grave spade',
+          optionSummary: 'Use reach and leverage to take the charm without barehanded contact.',
+          writerIntent: 'Offer a risky tool-use option with a health cost.',
+          actionPrompt: 'The selected option is to use the grave spade to hook the bone charm away from the lich without touching it barehanded.',
+          mode: 'use-item',
+          tone: 'reckless',
+          skillTags: ['steady-hands'],
+          requiresItemId: 'grave-spade',
+          consequenceHint: 'The charm comes free, but the lich’s cold tears at Tamsin as it passes.',
+          effects: [
+            { type: 'gainItem', item: boneCharm },
+            { type: 'damage', amount: 2, reason: 'The lich’s cold bit through the spade haft.' },
+            { type: 'remember', text: 'The bone charm is the lich’s anchor and proof of its ending.' },
+            { type: 'moveToNode', nodeId: 'king-return' },
+          ],
+        },
+        {
+          id: 'speak-burial-name',
+          label: 'Speak the burial name and reach for the charm',
+          optionSummary: 'Use the burial name as ritual pressure, then take the opening it creates.',
+          writerIntent: 'Offer a reflective ritual option grounded in grave-lore without inventing exact spoken words.',
+          actionPrompt: 'The selected option is to invoke the burial name from the rite and reach for the charm while the lich hesitates.',
+          mode: 'say',
+          tone: 'reflective',
+          skillTags: ['grave-lore'],
+          consequenceHint: 'The name weakens the lich long enough for Tamsin to take proof.',
+          effects: [
+            { type: 'gainItem', item: boneCharm },
+            { type: 'remember', text: 'Naming the dead can slow even a deathless thing when the rite is true.' },
+            { type: 'moveToNode', nodeId: 'king-return' },
+          ],
+        },
+      ],
     },
     {
       id: 'lich-ritual',
-      name: 'The lich raises another dead host',
+      name: 'The dead rise to the wrong bell',
       weight: 10,
       iconAssetId: 'keep',
-      prompt: 'The lich begins raising another dead host in Barrow Crypt and the volunteers must execute a believable plan or fail.',
+      prompt: 'The lich begins raising another host in Barrow Crypt while a cracked burial bell swings without its missing voice.',
       objectiveNodeId: 'king-return',
+      choices: [
+        {
+          id: 'restore-bell-and-break-charm',
+          label: 'Restore the bell and break the bone charm',
+          optionSummary: 'Complete the ritual mechanism and use it against the lich’s host.',
+          writerIntent: 'Offer the strongest prepared ritual solution for players who found the clapper.',
+          actionPrompt: 'The selected option is to set the silver clapper into the burial bell, ring the ritual, and break the bone charm as the dead turn toward the sound.',
+          mode: 'use-item',
+          tone: 'careful',
+          skillTags: ['grave-lore', 'steady-hands'],
+          requiresItemId: 'bell-clapper',
+          consequenceHint: 'The rite takes hold because the bell is whole and the charm is exposed.',
+          effects: [
+            { type: 'gainItem', item: boneCharm },
+            { type: 'remember', text: 'The burial bell rang whole, and the lich’s host lost the command that held it upright.' },
+            { type: 'setFlag', flag: 'lich-ended', value: true },
+            { type: 'moveToNode', nodeId: 'king-return' },
+          ],
+        },
+        {
+          id: 'bind-crypt-with-iron',
+          label: 'Bind the crypt door with scavenged iron',
+          optionSummary: 'Use scavenged iron for containment when a clean ending is not available.',
+          writerIntent: 'Offer a costly fallback that can still carry the story forward.',
+          actionPrompt: 'The selected option is to use every available scrap of iron to bind the crypt door and trap the ritual long enough to escape with proof.',
+          mode: 'use-item',
+          tone: 'reckless',
+          requiresItemId: 'cracked-spear-head',
+          consequenceHint: 'The binding is brutal and temporary, but it buys a path back to the king with evidence.',
+          effects: [
+            { type: 'loseItem', itemId: 'cracked-spear-head' },
+            { type: 'damage', amount: 4, reason: 'The crypt fought the binding with dead hands and flying stone.' },
+            { type: 'gainItem', item: boneCharm },
+            { type: 'setFlag', flag: 'lich-contained', value: true },
+            { type: 'moveToNode', nodeId: 'king-return' },
+          ],
+        },
+      ],
     },
     {
       id: 'royal-proof',
-      name: 'Proof before the throne',
+      name: 'Proof dirties the throne room',
       weight: 10,
       iconAssetId: 'lantern',
-      prompt: 'The volunteers return to King Osric and must prove the lich is ended before panic eats the court alive.',
+      prompt: 'Tamsin returns to King Osric with mud, wounds, and whatever proof she could carry from the barrow dark.',
+      choices: [
+        {
+          id: 'lay-proof-before-king',
+          label: 'Lay the proof before the king and make him look',
+          optionSummary: 'Use the carried evidence to force public acknowledgment.',
+          writerIntent: 'Offer a direct ending option focused on accountability and proof.',
+          actionPrompt: 'The selected option is to lay the proof before King Osric and force public acknowledgment of the order’s cost.',
+          mode: 'act',
+          tone: 'direct',
+          requiresItemId: 'bone-charm',
+          consequenceHint: 'The court understands the lich is ended or contained because Tamsin brought back the thing that held it.',
+          effects: [
+            { type: 'remember', text: 'Tamsin returned with proof and made the king look at what his command cost.' },
+            { type: 'setFlag', flag: 'proof-delivered', value: true },
+          ],
+        },
+        {
+          id: 'demand-names-read',
+          label: 'Demand the names of the dead be read before reward',
+          optionSummary: 'Make witness and remembrance the price of any royal gratitude.',
+          writerIntent: 'Offer a reflective ending option that centers the dead rather than reward.',
+          actionPrompt: 'The selected option is to refuse reward until the names of the raised and reburied dead are read aloud in the hall.',
+          mode: 'say',
+          tone: 'reflective',
+          consequenceHint: 'The court resists the discomfort, but the story ends with witness instead of pageantry.',
+          effects: [
+            { type: 'remember', text: 'Tamsin demanded witness for the dead before accepting any royal gratitude.' },
+            { type: 'setFlag', flag: 'proof-delivered', value: true },
+          ],
+        },
+      ],
     },
   ],
 }
 
 const nodeById = new Map(storySchema.nodes.map((node) => [node.id, node]))
 const eventById = new Map(storySchema.events.map((event) => [event.id, event]))
-
-const initialCharacters: Character[] = [
-  {
-    id: 'tamsin',
-    name: 'Tamsin',
-    role: 'Gravedigger',
-    personality: 'dry, stubborn, practical, and too familiar with death to be impressed by it',
-    portraitAsset: '/icons/ffffff/transparent/1x1/darkzaitzev/hooded-figure.svg',
-    color: '#7dd3fc',
-    currentNodeId: 'graymere-yard',
-    completed: false,
-    health: 100,
-    inventory: ['grave spade', 'iron nails', 'chalk marks', 'grave ash'],
-    stats: { body: 7, wits: 7, heart: 5 },
-    memory: ['Dead things are simpler when they stay buried.'],
-    background: {
-      storyRole: 'Tamsin knows graves, grave dirt, old burial signs, and what disturbed soil means.',
-      home: 'She digs graves outside Redvale and was taken by the king’s levy because she knows the dead too well.',
-      want: 'She wants to survive, end the rising dead, and return to work that at least made sense.',
-      weakness: 'She hides fear behind jokes until people mistake her caution for cruelty.',
-      closeTie: 'She trusts Brann’s hands when a plan needs lifting, breaking, or holding shut.',
-      privateKnowledge: 'She knows grave ash can blind a corpse for a few breaths if thrown into its eyes or mouth.',
-      decisionJob: 'When the group faces undead signs, Tamsin names what is corpse-work, what is magic, and what can be delayed no longer.',
-    },
-  },
-  {
-    id: 'brann',
-    name: 'Brann',
-    role: 'Blacksmith',
-    personality: 'blunt, anxious, loyal, and very aware that courage does not stop a blade',
-    portraitAsset: '/icons/ffffff/transparent/1x1/delapouite/person.svg',
-    color: '#facc15',
-    currentNodeId: 'graymere-yard',
-    completed: false,
-    health: 100,
-    inventory: ['iron spear', 'smith hammer', 'coil of chain', 'wrapped bread'],
-    stats: { body: 8, wits: 5, heart: 7 },
-    memory: ['If something can be broken, wedged, chained, or braced, say so before running.'],
-    background: {
-      storyRole: 'Brann understands metal, hinges, chains, pressure, and how poor equipment fails.',
-      home: 'He is a village smith from Redvale, dragged into service after repairing too many royal spearheads.',
-      want: 'He wants to come home alive and make King Osric regret calling this volunteering.',
-      weakness: 'He hesitates when a plan requires someone else to stand in danger while he works.',
-      closeTie: 'He watches over Sister Elowen because she treats him like more than hired muscle.',
-      privateKnowledge: 'He can spot weak pins, brittle locks, and old burial iron that might bind a corpse or bell chain.',
-      decisionJob: 'When the plan needs tools, force, or a practical way to pin something down, Brann makes it concrete.',
-    },
-  },
-  {
-    id: 'elowen',
-    name: 'Elowen',
-    role: 'Novice sister',
-    personality: 'gentle, frightened, observant, and brave only after admitting she is afraid',
-    portraitAsset: '/icons/ffffff/transparent/1x1/delapouite/character.svg',
-    color: '#c084fc',
-    currentNodeId: 'graymere-yard',
-    completed: false,
-    health: 100,
-    inventory: ['silver bell', 'chapel candle', 'threadbare prayer book', 'clean bandages'],
-    stats: { body: 5, wits: 6, heart: 9 },
-    memory: ['Fear gets smaller when someone names the next step.'],
-    background: {
-      storyRole: 'Elowen knows burial prayers, old saints’ rites, and how to keep frightened people talking.',
-      home: 'She served in Redvale’s chapel until the king named her volunteer because she could read the burial book.',
-      want: 'She wants the dead put back to rest and wants the living to stop treating sacrifice as policy.',
-      weakness: 'She can freeze when cruelty sounds official or when someone calls her faith useless.',
-      closeTie: 'She believes Tamsin’s grim knowledge and Brann’s practical hands can become a real plan if she keeps them together.',
-      privateKnowledge: 'She knows a rite that may weaken a lich if a silver bell is rung over its soul vessel.',
-      decisionJob: 'When others pull apart, Elowen turns fear, clues, and conscience into one agreed course.',
-    },
-  },
-]
 
 const defaultLlmSettings: LlmSettings = {
   endpoint: 'http://localhost:11434',
@@ -434,13 +994,13 @@ const defaultLlmSettings: LlmSettings = {
 
 const initialState: CampaignState = {
   turn: 1,
-  characters: initialCharacters,
+  player: storySchema.player,
   storyNpcs: [],
   currentNodeId: 'graymere-yard',
-  currentEvent: storySchema.events[0],
-  currentEventStartedTurn: 1,
+  currentEvent: undefined,
+  sceneOpened: false,
   exploredNodeIds: ['graymere-yard'],
-  eventHistory: [storySchema.events[0]],
+  eventHistory: [],
   feed: [
     {
       id: 'opening',
@@ -448,10 +1008,11 @@ const initialState: CampaignState = {
       kind: 'dialogue',
       speaker: 'King Osric',
       nodeId: 'graymere-yard',
-      text: 'King Osric: Tamsin of the graves, Brann of the forge, Sister Elowen of Redvale—you are named by the King’s Writ. The lich in the old barrows raises more dead each night. Stop him, return to Graymere Hall, and I will call you heroes instead of volunteers.',
+      text: 'King Osric: Tamsin of Redvale, you know graves better than my remaining knights know roads. The old barrows have begun returning what we buried. Take this writ, follow the opened earth, and bring me proof that the dead will stay down.',
     },
   ],
   debugFeed: [],
+  flags: {},
   outcome: 'running',
 }
 
@@ -459,8 +1020,73 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function splitFeedLines(text: string) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function getGeneratedFeedLines(entry: FeedEntry) {
+  return splitFeedLines(entry.generatedText ?? entry.text)
+}
+
+function getRevealedFeedText(entry: FeedEntry, revealedLineCount = entry.revealedLineCount ?? getGeneratedFeedLines(entry).length) {
+  return getGeneratedFeedLines(entry).slice(0, revealedLineCount).join('\n')
+}
+
+function getFeedLineCount(entry: FeedEntry) {
+  return getGeneratedFeedLines(entry).length
+}
+
+function hasUnrevealedLines(entry: FeedEntry) {
+  return entry.revealMode === 'line-gated' && (entry.revealedLineCount ?? 0) < getFeedLineCount(entry)
+}
+
+function isFeedEntryFullyRevealed(entry: FeedEntry) {
+  return entry.revealMode !== 'line-gated' || !entry.streaming && !hasUnrevealedLines(entry)
+}
+
+function getActiveLineGatedEntry(state: CampaignState) {
+  return state.feed.find((entry) => entry.revealMode === 'line-gated' && !isFeedEntryFullyRevealed(entry))
+}
+
 function getNode(id: string) {
   return nodeById.get(id) ?? storySchema.nodes[0]
+}
+
+function getNodeExits(node: StoryNode) {
+  return node.exits.length > 0 ? node.exits : (node.nextNodeIds ?? []).map((toNodeId) => ({ toNodeId }))
+}
+
+function getNodePosition(node: StoryNode, index = storySchema.nodes.findIndex((candidate) => candidate.id === node.id)) {
+  const safeIndex = index < 0 ? 0 : index
+
+  return node.mapPosition ?? { x: 120 + (safeIndex % 3) * 180, y: 520 - Math.floor(safeIndex / 3) * 160 }
+}
+
+function getNodeDistance(from: StoryNode, to: StoryNode) {
+  const fromPosition = getNodePosition(from)
+  const toPosition = getNodePosition(to)
+
+  return Math.hypot(toPosition.x - fromPosition.x, toPosition.y - fromPosition.y)
+}
+
+function getHiddenNodeTypeLabel(nodeType: StoryNodeType) {
+  const labels: Record<StoryNodeType, string> = {
+    origin: 'Known origin',
+    settlement: 'Unknown settlement',
+    road: 'Unknown road',
+    wilds: 'Unknown wilds',
+    watch: 'Distant watch',
+    crypt: 'Buried place',
+    court: 'Distant court',
+    ritual: 'Ritual site',
+    hazard: 'Hazard',
+    mystery: 'Mystery',
+  }
+
+  return labels[nodeType]
 }
 
 function normalizeOllamaBase(endpoint: string) {
@@ -584,26 +1210,251 @@ function drawStoryEvent(state: CampaignState) {
   return weightedChoice(pool, ({ weight }) => weight)?.event ?? storySchema.events[0]
 }
 
-function chooseNextNode(state: CampaignState, event: StoryEvent, visibleText: string) {
-  const node = getNode(state.currentNodeId)
+function hasInventoryItem(player: PlayableCharacter, itemId: string) {
+  return player.inventory.some((item) => item.id === itemId)
+}
 
-  if (event.objectiveNodeId && node.nextNodeIds.includes(event.objectiveNodeId)) {
-    return event.objectiveNodeId
+function addInventoryItem(player: PlayableCharacter, item: InventoryItem) {
+  if (hasInventoryItem(player, item.id)) {
+    return player
   }
 
-  const mentionedNode = node.nextNodeIds.find((nodeId) => visibleText.toLowerCase().includes(getNode(nodeId).publicName.toLowerCase().split(' ')[0]))
+  return { ...player, inventory: [...player.inventory, item] }
+}
 
-  if (mentionedNode) {
-    return mentionedNode
+function removeInventoryItem(player: PlayableCharacter, itemId: string) {
+  return { ...player, inventory: player.inventory.filter((item) => item.id !== itemId) }
+}
+
+function clampHealth(health: Health) {
+  return { ...health, current: Math.min(health.max, Math.max(0, health.current)) }
+}
+
+function getTravelBlockerReason(state: CampaignState, exit: StoryExit) {
+  const blocker = exit.blocker
+
+  if (!blocker) {
+    return undefined
   }
 
-  return node.nextNodeIds[0] ?? node.id
+  if (blocker.clearedByFlag && state.flags[blocker.clearedByFlag]) {
+    return undefined
+  }
+
+  if (blocker.requiredFlag && !state.flags[blocker.requiredFlag]) {
+    return blocker.reason
+  }
+
+  if (blocker.requiredItemId && !hasInventoryItem(state.player, blocker.requiredItemId)) {
+    return blocker.reason
+  }
+
+  if (blocker.requiredFlag || blocker.requiredItemId || blocker.clearedByFlag) {
+    return undefined
+  }
+
+  return blocker.preventsTravel === false ? undefined : blocker.reason
+}
+
+function getUnfinishedBusinessReason(state: CampaignState) {
+  const currentNode = getNode(state.currentNodeId)
+
+  for (const business of currentNode.unfinishedBusiness ?? []) {
+    if (business.clearedByFlag && state.flags[business.clearedByFlag]) {
+      continue
+    }
+
+    if (business.requiredFlag && !state.flags[business.requiredFlag]) {
+      continue
+    }
+
+    if (business.requiredItemId && !hasInventoryItem(state.player, business.requiredItemId)) {
+      continue
+    }
+
+    if (business.activeEventId && state.currentEvent?.id !== business.activeEventId) {
+      continue
+    }
+
+    return business.reason
+  }
+
+  return undefined
+}
+
+function getAdjacentTravelTargets(state: CampaignState) {
+  const currentNode = getNode(state.currentNodeId)
+  const explored = new Set(state.exploredNodeIds)
+
+  return getNodeExits(currentNode)
+    .map((exit) => {
+      const node = getNode(exit.toNodeId)
+
+      return {
+        node,
+        exit,
+        explored: explored.has(node.id),
+        distance: getNodeDistance(currentNode, node),
+        blockedReason: getTravelBlockerReason(state, exit),
+      }
+    })
+    .sort((a, b) => a.distance - b.distance)
+}
+
+function getNearestUnexploredAdjacentTargets(state: CampaignState) {
+  const unexploredTargets = getAdjacentTravelTargets(state).filter((target) => !target.explored && !target.blockedReason)
+  const nearestDistance = Math.min(...unexploredTargets.map((target) => target.distance))
+
+  if (!Number.isFinite(nearestDistance)) {
+    return []
+  }
+
+  return unexploredTargets.filter((target) => Math.abs(target.distance - nearestDistance) < 0.001)
+}
+
+function getTravelDisabledReason(state: CampaignState, nodeId: string) {
+  if (nodeId === state.currentNodeId) {
+    return 'Tamsin is already here.'
+  }
+
+  if (state.player.health.current <= 0) {
+    return 'Tamsin cannot travel while her health is gone.'
+  }
+
+  const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
+
+  if (unfinishedBusinessReason) {
+    return unfinishedBusinessReason
+  }
+
+  const target = getAdjacentTravelTargets(state).find((candidate) => candidate.node.id === nodeId)
+
+  if (!target) {
+    return 'That place is not connected to the current location.'
+  }
+
+  if (target.blockedReason) {
+    return target.blockedReason
+  }
+
+  if (target.explored) {
+    return undefined
+  }
+
+  const nearestUnexploredTargets = getNearestUnexploredAdjacentTargets(state)
+  const isNearestUnexploredTarget = nearestUnexploredTargets.some((candidate) => candidate.node.id === nodeId)
+
+  return isNearestUnexploredTarget ? undefined : 'A nearer unknown route has to be dealt with first.'
+}
+
+function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
+  if (choice.requiresItemId && !hasInventoryItem(state.player, choice.requiresItemId)) {
+    const knownItem = [...state.player.inventory, graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm].find((item) => item.id === choice.requiresItemId)
+    return `Requires ${knownItem?.name ?? 'a missing item'}.`
+  }
+
+  if (state.player.health.current <= 0) {
+    return 'Tamsin cannot act while her health is gone.'
+  }
+
+  return undefined
+}
+
+function getAvailableChoices(state: CampaignState) {
+  return state.currentEvent?.choices ?? []
+}
+
+function getChoiceVarietyWarnings(event: StoryEvent) {
+  const modes = new Set(event.choices.map((choice) => choice.mode))
+  const tones = new Set(event.choices.map((choice) => choice.tone))
+  const warnings: string[] = []
+
+  if (event.choices.length < 3) {
+    warnings.push(`${event.name} has fewer than 3 authored options.`)
+  }
+
+  if (modes.size < Math.min(2, event.choices.length)) {
+    warnings.push(`${event.name} options do not vary by action mode.`)
+  }
+
+  if (tones.size < Math.min(2, event.choices.length)) {
+    warnings.push(`${event.name} options do not vary by tone.`)
+  }
+
+  return warnings
+}
+
+function describeEffect(effect: StoryEffect) {
+  switch (effect.type) {
+    case 'gainItem':
+      return `Gain item: ${effect.item.name}`
+    case 'loseItem':
+      return `Lose item: ${effect.itemId}`
+    case 'damage':
+      return `Lose ${effect.amount} health: ${effect.reason}`
+    case 'heal':
+      return `Recover ${effect.amount} health: ${effect.reason}`
+    case 'remember':
+      return `Remember: ${effect.text}`
+    case 'revealNode':
+      return `Reveal place: ${getNode(effect.nodeId).publicName}`
+    case 'moveToNode':
+      return `Move to: ${getNode(effect.nodeId).publicName}`
+    case 'setFlag':
+      return `Set ${effect.flag}: ${String(effect.value)}`
+  }
+}
+
+function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
+  let player = state.player
+  let currentNodeId = state.currentNodeId
+  let exploredNodeIds = state.exploredNodeIds
+  let flags = state.flags
+
+  for (const effect of effects) {
+    if (effect.type === 'gainItem') {
+      player = addInventoryItem(player, effect.item)
+    }
+
+    if (effect.type === 'loseItem') {
+      player = removeInventoryItem(player, effect.itemId)
+    }
+
+    if (effect.type === 'damage') {
+      player = { ...player, health: clampHealth({ ...player.health, current: player.health.current - effect.amount }), memory: [...player.memory, effect.reason].slice(-8) }
+    }
+
+    if (effect.type === 'heal') {
+      player = { ...player, health: clampHealth({ ...player.health, current: player.health.current + effect.amount }), memory: [...player.memory, effect.reason].slice(-8) }
+    }
+
+    if (effect.type === 'remember') {
+      player = { ...player, memory: [...player.memory, effect.text].slice(-8) }
+    }
+
+    if (effect.type === 'revealNode') {
+      exploredNodeIds = exploredNodeIds.includes(effect.nodeId) ? exploredNodeIds : [...exploredNodeIds, effect.nodeId]
+    }
+
+    if (effect.type === 'moveToNode') {
+      currentNodeId = effect.nodeId
+      exploredNodeIds = exploredNodeIds.includes(effect.nodeId) ? exploredNodeIds : [...exploredNodeIds, effect.nodeId]
+    }
+
+    if (effect.type === 'setFlag') {
+      flags = { ...flags, [effect.flag]: effect.value }
+    }
+  }
+
+  const outcome: CampaignState['outcome'] = player.health.current <= 0 ? 'lost' : currentNodeId === storySchema.goalNodeId && flags['proof-delivered'] ? 'won' : 'running'
+
+  return { ...state, player, currentNodeId, exploredNodeIds, flags, outcome }
 }
 
 function formatRecentFeed(feed: FeedEntry[]) {
   return feed
-    .slice(-8)
-    .map((entry) => `${entry.speaker ?? entry.kind}: ${entry.text}`)
+    .slice(-10)
+    .map((entry) => `${entry.speaker ?? entry.kind}: ${entry.generatedText ?? entry.text}`)
     .join('\n')
 }
 
@@ -630,43 +1481,60 @@ function getCodexReferences(state: CampaignState) {
     addReference({ term: node.publicName, type: 'place', targetId: node.id })
     addReference({ term: node.name, type: 'place', targetId: node.id })
   })
-  state.characters.forEach((character) => {
-    addReference({ term: character.name, type: 'person', targetId: character.id })
-    character.inventory.forEach((item) => addReference({ term: item, type: 'term' }))
-  })
+  addReference({ term: state.player.name, type: 'person', targetId: state.player.id })
+  state.player.inventory.filter((item) => item.visible).forEach((item) => addReference({ term: item.name, type: 'item', targetId: item.id }))
   state.storyNpcs.forEach((npc) => addReference({ term: npc.name, type: 'person', targetId: npc.id }))
   storySchema.codexTerms.forEach((term) => {
     const matchingPlace = storySchema.nodes.find((node) => node.publicName.toLowerCase() === term.toLowerCase())
     const matchingPlaceIsKnown = matchingPlace ? state.exploredNodeIds.includes(matchingPlace.id) : false
-    addReference({ term, type: matchingPlaceIsKnown ? 'place' : 'term', targetId: matchingPlaceIsKnown ? matchingPlace?.id : undefined })
+    const matchingItem = state.player.inventory.find((item) => item.name.toLowerCase() === term.toLowerCase())
+    addReference({ term, type: matchingPlaceIsKnown ? 'place' : matchingItem ? 'item' : 'term', targetId: matchingPlaceIsKnown ? matchingPlace?.id : matchingItem?.id })
   })
 
   return references.sort((a, b) => b.term.length - a.term.length)
 }
 
-function formatCharacterSheet(character: Character) {
-  return `Role: ${character.role}
-Personality: ${character.personality}
-Want: ${character.background.want}
-Weakness: ${character.background.weakness}
-Tie: ${character.background.closeTie}
-Private knowledge: ${character.background.privateKnowledge}
-Decision job: ${character.background.decisionJob}
-Recent memory: ${character.memory.slice(-4).join(' / ')}`
+function formatPlayerSheet(player: PlayableCharacter) {
+  return `Name: ${player.name}
+Role: ${player.role}
+Health: ${player.health.current}/${player.health.max}
+Visible inventory: ${player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
+Skill tags: ${player.skillTags.join(', ')}
+Public presentation: ${player.voice.publicStyle}
+Authorial constraints: fear of ${player.voice.fear}; wants ${player.voice.desire}; contradiction: ${player.voice.contradiction}
+Origin: ${player.backstory.origin}
+Wound: ${player.backstory.wound}
+Known goal: ${player.backstory.want}
+Private knowledge available to the player: ${player.backstory.privateKnowledge}
+Recent known story facts: ${player.memory.slice(-5).join(' / ')}`
 }
 
 function formatCodexContext(state: CampaignState) {
+  const currentNode = getNode(state.currentNodeId)
   const knownPlaces = state.exploredNodeIds.map((nodeId) => {
     const node = getNode(nodeId)
     return `${node.publicName}: ${node.description}${node.id === state.currentNodeId ? ' Current location.' : ''}`
   })
-  const knownPeople = [
-    ...state.characters.map((character) => `${character.name}: ${character.role}. ${character.background.storyRole} Inventory: ${character.inventory.join(', ')}. Memory: ${character.memory.slice(-4).join(' / ')}`),
-    ...state.storyNpcs.map((npc) => `${npc.name}: ${npc.role}. ${npc.description} Wants: ${npc.want}. Knows: ${npc.knows}. Memory: ${npc.memory.slice(-4).join(' / ')}`),
-  ]
+  const knownNpcs = state.storyNpcs.map((npc) => `${npc.name}: ${npc.role}. ${npc.description} Wants: ${npc.want}. Knows: ${npc.knows}. Memory: ${npc.memory.slice(-4).join(' / ')}`)
   const seenEvents = [...new Set(state.eventHistory.map((event) => event.name))]
+  const flags = Object.entries(state.flags).filter(([, value]) => value).map(([flag]) => flag)
 
-  return `Known places:\n${knownPlaces.join('\n') || 'None yet.'}\n\nKnown people:\n${knownPeople.join('\n')}\n\nSeen events:\n${seenEvents.join(', ') || 'None yet.'}`
+  return `Current place: ${currentNode.publicName}
+
+Player:
+${formatPlayerSheet(state.player)}
+
+Known places:
+${knownPlaces.join('\n') || 'None yet.'}
+
+Known people:
+${knownNpcs.join('\n') || 'No one else has been closely encountered yet.'}
+
+Seen events:
+${seenEvents.join(', ') || 'None yet.'}
+
+Known flags:
+${flags.join(', ') || 'None.'}`
 }
 
 function formatSceneNpcs(npcs: StoryNpc[]) {
@@ -698,149 +1566,112 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
   return { storyNpcs: [...state.storyNpcs, sceneNpc], sceneNpc }
 }
 
-function buildNarratorPrompt(state: CampaignState, event: StoryEvent) {
-  const node = getNode(state.currentNodeId)
-  const sceneStartedTurn = state.currentEventStartedTurn ?? state.turn
-  const sceneAge = Math.max(1, state.turn - sceneStartedTurn + 1)
+const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
+const playerAgencyRule = 'Do not write the player character’s private thoughts, feelings, doubts, motives, exact speech, or unchosen actions. Only frame, resolve, or respond to the selected option as stated.'
 
-  return `You are the narrator of a progressive text adventure being watched from outside the party.
-
-Story: ${storySchema.title}
-Turn: ${state.turn}/${storySchema.maxTurns}
-Current node: ${node.publicName}
-Node purpose: ${node.description}
-Current scene: ${event.name}
-Scene has continued for ${sceneAge} Next press(es).
-Event pressure: ${event.prompt}
-Recent visible story:
-${formatRecentFeed(state.feed)}
-Codex memory available to narrator and characters:
-${formatCodexContext(state)}
-
-Write only visible story text. No JSON. No markdown heading.
-Style requirements:
-- Visual novel style: short beats, one beat per line.
-- Outside observer perspective.
-- Make the situation clear and concrete.
-- Do not decide for the characters.
-- Mention sensory details and what the characters can react to.
-- If this is a continuing scene, escalate or clarify the same problem instead of resolving it for them.
-- If an NPC speaks, write the NPC's actual name followed by a colon, like "King Osric: words". Never write the literal label "Name:".
-- For fragile or quiet delivery, prefix that line with "[weak]", "[small]", or "[whisper]".
-- Do not reveal hidden schema nodes or unreached route names.`
-}
-
-function buildPrivateNarratorPrompt(character: Character, state: CampaignState, event: StoryEvent) {
-  const node = getNode(state.currentNodeId)
-
-  return `This is a private debug-only exchange. It is NOT visible to the audience unless debug mode is on.
-
-Character: ${character.name}
-${formatCharacterSheet(character)}
-Current node: ${node.publicName}
-Current event: ${event.name} — ${event.prompt}
-Recent visible story:
-${formatRecentFeed(state.feed)}
-Codex memory available privately:
-${formatCodexContext(state)}
-
-Write a compact private exchange between ${character.name} and the Narrator:
-${character.name} asks one practical question about what they can infer or try.
-Narrator answers with one useful constraint or clue.
-No JSON.`
-}
-
-function buildCharacterPrompt(character: Character, state: CampaignState, event: StoryEvent, privateExchange: string, spokenThisTurn: string[]) {
-  const others = state.characters.filter((other) => other.id !== character.id).map((other) => `${other.name} (${other.role})`).join(', ')
+function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   const node = getNode(state.currentNodeId)
   const sceneNpcs = state.storyNpcs.filter((npc) => npc.currentNodeId === state.currentNodeId || npc.introducedByEventId === event.id)
 
-  return `You are writing one visible character turn in a progressive text adventure.
+  return `You are the narrator of an original literary interactive fiction scene.
 
-Character: ${character.name}
-${formatCharacterSheet(character)}
-Other characters present: ${others}
+Story: ${storySchema.title}
+Turn: ${state.turn}/${storySchema.maxTurns}
+Current place: ${node.publicName}
+Place purpose: ${node.description}
+Player character:
+${formatPlayerSheet(state.player)}
+Scene: ${event.name}
+Scene pressure: ${event.prompt}
 Scene NPCs:
 ${formatSceneNpcs(sceneNpcs)}
-Current node: ${node.publicName}
-Current event: ${event.name} — ${event.prompt}
-Private narrator exchange for this character, not visible to audience:
-${privateExchange || 'None.'}
-Visible story so far:
+Recent visible story:
 ${formatRecentFeed(state.feed)}
-Codex memory available to this character:
+Compact story memory:
 ${formatCodexContext(state)}
-Characters who already spoke this turn:
-${spokenThisTurn.length > 0 ? spokenThisTurn.join('\n') : 'No one yet.'}
 
-Write only ${character.name}'s visible action and dialogue. No JSON. No markdown heading.
+Write only visible story text. No JSON. No markdown heading.
 Rules:
-- Visual novel style: short beats, one beat per line.
-- ${character.name} should primarily talk with the other protagonists about how to approach the situation.
-- ${character.name} may ask the NPC one specific question, but should not act like they are handling the NPC alone.
-- React to prior speakers instead of monologuing.
-- Favor direct action and dialogue that naturally fits the scene.
-- Use ${character.name}'s actual name followed by a colon for spoken lines, like "${character.name}: words". Never write the literal label "Name:".
-- For quiet, uncertain, or broken delivery, prefix the line with "[weak]", "[small]", or "[whisper]".
-- The line should sound like a person under pressure, not a status report.
-- Use the private exchange only as subtext; do not expose that a private question happened.`
+- Describe only externally available scene details: surroundings, NPC behavior, physical pressure, sensory facts, and immediate stakes.
+- Short beats, one beat per line.
+- Make the situation concrete and leave room for the player to choose from the authored options.
+- Do not write dialogue for the player character.
+- Do not decide the player's action.
+- ${playerAgencyRule}
+- Do not invent health, inventory, victory, loss, map movement, or hidden discoveries.
+- If an NPC speaks, write the NPC's actual name followed by a colon. Never write the literal label "Name:".
+- For fragile or quiet delivery, prefix that line with "[weak]", "[small]", or "[whisper]".
+- Do not reveal hidden routes, future places, or event tables.
+- ${originalStoryRule}`
 }
 
-function buildNpcPrompt(npc: StoryNpc, state: CampaignState, event: StoryEvent, spokenThisTurn: string[]) {
+function buildPlayerActionResolutionPrompt(state: CampaignState, event: StoryEvent, choice: StoryChoice, effects: StoryEffect[]) {
   const node = getNode(state.currentNodeId)
 
-  return `You are writing one visible NPC response in a progressive visual novel scene.
+  return `Resolve the player's chosen action as original literary interactive fiction.
+
+Current place: ${node.publicName}
+Current scene: ${event.name}
+Scene pressure: ${event.prompt}
+Player character:
+${formatPlayerSheet(state.player)}
+Selected option:
+Label: ${choice.label}
+Mode: ${choice.mode}
+Intent: ${choice.actionPrompt}
+Writer intent: ${choice.writerIntent ?? 'Use only the selected option and authored consequence hint.'}
+Tone: ${choice.tone}
+Relevant skill color: ${choice.skillTags?.join(', ') || 'none'}
+Authored consequence hint:
+${choice.consequenceHint ?? 'Follow the current pressure and the hard effects below.'}
+Hard state effects handled by code:
+${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
+Recent visible story:
+${formatRecentFeed(state.feed)}
+Compact story memory:
+${formatCodexContext(state)}
+
+Write visible prose only. No JSON. No markdown heading.
+Rules:
+- Resolve only the selected option.
+- Short beats, one beat per line.
+- Do not add unselected motives, regrets, memories, emotions, thoughts, or private conclusions for the player character.
+- Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
+- If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
+- ${playerAgencyRule}
+- Do not invent additional health, inventory, map, victory, or loss changes beyond the hard effects listed above.
+- If someone speaks, use their actual name followed by a colon. Never write the literal label "Name:".
+- ${originalStoryRule}`
+}
+
+function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: StoryNpc, choice: StoryChoice, resolutionText: string) {
+  const node = getNode(state.currentNodeId)
+
+  return `Write one visible NPC response in an original interactive fiction scene.
 
 NPC: ${npc.name} (${npc.role})
 Description: ${npc.description}
 Voice: ${npc.voice}
 Want: ${npc.want}
 Knows: ${npc.knows}
-Current node: ${node.publicName}
-Current event: ${event.name} — ${event.prompt}
-What the protagonists just said:
-${spokenThisTurn.length > 0 ? spokenThisTurn.join('\n') : 'No one spoke yet.'}
-Codex memory available to the scene:
+Current place: ${node.publicName}
+Scene: ${event.name} — ${event.prompt}
+Selected option: ${choice.actionPrompt}
+Resolution so far:
+${resolutionText}
+Compact story memory:
 ${formatCodexContext(state)}
 
 Write only ${npc.name}'s visible response. No JSON. No markdown heading.
 Rules:
-- Visual novel style: short beats, one beat per line.
-- Use ${npc.name}'s actual name followed by a colon for speech, like "${npc.name}: words". Never write the literal label "Name:".
-- If ${npc.name} is scared, small, weak, hesitant, or whispering, prefix the line with "[weak]", "[small]", or "[whisper]".
-- Answer or react to the group, not each character separately.`
-}
-
-function buildSceneResolutionPrompt(state: CampaignState, event: StoryEvent, spokenThisTurn: string[]) {
-  const node = getNode(state.currentNodeId)
-  const sceneStartedTurn = state.currentEventStartedTurn ?? state.turn
-  const sceneAge = Math.max(1, state.turn - sceneStartedTurn + 1)
-
-  return `This is a private debug-only narrator validation. It is NOT visible to the audience unless debug mode is on.
-
-Story: ${storySchema.title}
-Current place: ${node.publicName}
-Scene: ${event.name}
-Scene pressure: ${event.prompt}
-Scene has continued for ${sceneAge} Next press(es).
-Visible character/NPC text from this press:
-${spokenThisTurn.length > 0 ? spokenThisTurn.join('\n') : 'No visible plan yet.'}
-Compact codex memory:
-${formatCodexContext(state)}
-
-Decide whether the scene is resolved enough for the map to advance.
-The scene may resolve only if the protagonists have converged on a concrete, plausible solution and any active NPC pressure has been answered well enough.
-
-Return exactly this format:
-RESOLVED: yes or no
-REASON: one short sentence
-
-No markdown. No extra headings.`
-}
-
-function parseSceneResolved(validationText: string) {
-  const resolvedMatch = validationText.match(/RESOLVED:\s*(yes|no)/i)
-  return resolvedMatch?.[1]?.toLowerCase() === 'yes'
+- Short beats, one beat per line.
+- Use ${npc.name}'s actual name followed by a colon. Never write the literal label "Name:".
+- React to the selected option and the NPC's own want.
+- Do not invent exact dialogue, private thoughts, motives, or additional actions for the player character.
+- If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
+- ${playerAgencyRule}
+- Do not invent health, inventory, map, victory, or loss changes.
+- ${originalStoryRule}`
 }
 
 function StoryIcon({ id, label, className = '' }: { id: StoryIconId; label: string; className?: string }) {
@@ -858,11 +1689,11 @@ function getVisualNovelLineStyle(line: string) {
   const text = markerMatch ? line.replace(/^\[(weak|small|whisper)\]\s*/i, '') : line
 
   if (marker === 'weak' || marker === 'small') {
-    return { text, className: 'text-sm italic tracking-wide text-muted-foreground/80' }
+    return { text, className: 'italic tracking-wide text-foreground/80' }
   }
 
   if (marker === 'whisper') {
-    return { text, className: 'text-sm italic text-muted-foreground' }
+    return { text, className: 'italic text-foreground/75' }
   }
 
   return { text, className: '' }
@@ -873,6 +1704,7 @@ function renderCodexText(
   references: CodexReference[],
   onOpenCodexNode: (nodeId: string) => void,
   onOpenCodexPerson: (personId: string) => void,
+  onOpenCodexItem: (itemId: string) => void,
   onOpenCodex: () => void,
 ) {
   if (references.length === 0 || text.length === 0) {
@@ -900,6 +1732,11 @@ function renderCodexText(
         return
       }
 
+      if (reference.type === 'item' && reference.targetId) {
+        onOpenCodexItem(reference.targetId)
+        return
+      }
+
       onOpenCodex()
     }
 
@@ -923,27 +1760,22 @@ function StoryTranscript({
   state,
   onOpenCodexNode,
   onOpenCodexPerson,
+  onOpenCodexItem,
   onOpenCodex,
 }: {
   state: CampaignState
   onOpenCodexNode: (nodeId: string) => void
   onOpenCodexPerson: (personId: string) => void
+  onOpenCodexItem: (itemId: string) => void
   onOpenCodex: () => void
 }) {
   const references = getCodexReferences(state)
 
   return (
-    <div className="rounded-2xl border bg-background p-5 shadow-sm">
-      <div className="font-serif text-base leading-8 tracking-normal">
+    <div className="rounded-2xl border bg-background p-4 shadow-sm">
+      <div className="font-serif text-sm leading-6 tracking-normal text-foreground">
         {state.feed.map((entry) => (
-          <FeedBlock
-            key={entry.id}
-            entry={entry}
-            references={references}
-            onOpenCodexNode={onOpenCodexNode}
-            onOpenCodexPerson={onOpenCodexPerson}
-            onOpenCodex={onOpenCodex}
-          />
+          <FeedBlock key={entry.id} entry={entry} state={state} references={references} onOpenCodexNode={onOpenCodexNode} onOpenCodexPerson={onOpenCodexPerson} onOpenCodexItem={onOpenCodexItem} onOpenCodex={onOpenCodex} />
         ))}
       </div>
     </div>
@@ -952,57 +1784,305 @@ function StoryTranscript({
 
 function FeedBlock({
   entry,
+  state,
   references,
   onOpenCodexNode,
   onOpenCodexPerson,
+  onOpenCodexItem,
   onOpenCodex,
 }: {
   entry: FeedEntry
+  state: CampaignState
   references: CodexReference[]
   onOpenCodexNode: (nodeId: string) => void
   onOpenCodexPerson: (personId: string) => void
+  onOpenCodexItem: (itemId: string) => void
   onOpenCodex: () => void
 }) {
-  const lines = entry.text.split('\n').filter((line) => line.trim().length > 0)
-  const renderedLines = lines.length > 0 ? [...lines, ...(entry.streaming && entry.text.endsWith('\n') ? [''] : [])] : ['']
+  const lines = splitFeedLines(entry.text)
+  const renderedLines = lines.length > 0 ? lines : ['']
+  const npc = state.storyNpcs.find((candidate) => candidate.name === entry.speaker)
+  const portrait = entry.kind === 'narration'
+    ? storyIconAssets.lantern
+    : entry.kind === 'action' || entry.speaker === state.player.name
+      ? state.player.portraitAsset
+      : npc
+        ? publicDomainPortraitAsset
+        : storyIconAssets.codex
+  const portraitLabel = entry.kind === 'action' ? 'Selected option' : entry.speaker ?? entry.kind
+  const portraitIsPainting = portrait === publicDomainPortraitAsset || portrait === state.player.portraitAsset
 
   return (
-    <section className="mb-8 last:mb-0">
+    <section className="mb-6 last:mb-0">
       {entry.kind === 'system' ? (
-        <div className="mb-3 flex items-center gap-3 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        <div className="iff-log-line mb-3 flex items-center gap-3 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           <Separator className="flex-1" />
           <span>{entry.text}</span>
           <Separator className="flex-1" />
         </div>
       ) : null}
       {entry.kind !== 'system' ? (
-        <div className={entry.kind === 'narration' ? 'text-foreground' : 'text-muted-foreground'}>
-        {renderedLines.map((line, index) => {
-          const styledLine = getVisualNovelLineStyle(line)
-          const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
-          const displayedSpeaker = normalizeSpeakerLabel(entry.kind === 'dialogue' ? speakerMatch?.[1] ?? entry.speaker : speakerMatch?.[1], entry.speaker)
-          const displayedText = speakerMatch ? speakerMatch[2] : styledLine.text
+        <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-4 text-foreground sm:grid-cols-[6rem_minmax(0,1fr)]">
+          <div className="iff-log-line flex flex-col items-stretch">
+            <span className={`inline-flex h-full min-h-28 w-20 items-center justify-center overflow-hidden rounded-xl border sm:w-24 ${entry.kind === 'action' ? 'border-primary/40 bg-primary/10' : 'bg-muted'}`} title={portraitLabel}>
+              <img src={portrait} alt="" className={portraitIsPainting ? 'h-full w-full object-cover' : 'size-8 object-contain opacity-90'} />
+            </span>
+          </div>
+          <div className={entry.kind === 'action' ? 'iff-log-line rounded-xl border bg-muted/30 p-3' : 'py-1'}>
+            {entry.kind === 'action' ? <p className="mb-2 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-foreground">Selected option</p> : null}
+            {renderedLines.map((line, index) => {
+              const styledLine = getVisualNovelLineStyle(line)
+              const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
+              const displayedSpeaker = normalizeSpeakerLabel(entry.kind === 'dialogue' ? speakerMatch?.[1] ?? entry.speaker : speakerMatch?.[1], entry.speaker)
+              const displayedText = speakerMatch ? speakerMatch[2] : styledLine.text
+              const shouldShowSpeaker = entry.kind !== 'action' && displayedSpeaker && displayedSpeaker !== 'Narrator'
 
-          const shouldShowSpeaker = displayedSpeaker && displayedSpeaker !== 'Narrator'
-
-          return shouldShowSpeaker ? (
-            <p key={`${entry.id}-line-${index}`} className={`mb-2 grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-3 whitespace-pre-wrap last:mb-0 ${styledLine.className}`}>
-              <span className="truncate font-sans text-xs font-semibold uppercase tracking-[0.08em] text-foreground">{displayedSpeaker}</span>
-              <span>
-                {renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodex)}
-                {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
-              </span>
-            </p>
-          ) : (
-            <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap last:mb-0 ${styledLine.className}`}>
-              <span>{renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodex)}</span>
-              {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
-            </p>
-          )
-        })}
+              return shouldShowSpeaker ? (
+                <p key={`${entry.id}-line-${index}`} className={`iff-log-line mb-1.5 grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-3 whitespace-pre-wrap text-sm leading-6 last:mb-0 ${styledLine.className}`}>
+                  <span className="truncate font-sans text-xs font-semibold uppercase tracking-[0.08em] text-foreground">{displayedSpeaker}</span>
+                  <span>
+                    {renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}
+                    {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
+                  </span>
+                </p>
+              ) : (
+                <p key={`${entry.id}-line-${index}`} className={`iff-log-line mb-1.5 whitespace-pre-wrap text-sm leading-6 last:mb-0 ${entry.kind === 'action' && index === 0 ? 'font-medium text-foreground' : ''} ${entry.kind === 'action' && index > 0 ? 'font-serif text-foreground/80' : ''} ${styledLine.className}`}>
+                  <span>{renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}</span>
+                  {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-primary">▌</span> : null}
+                </p>
+              )
+            })}
+          </div>
         </div>
       ) : null}
     </section>
+  )
+}
+
+type MapRenderNode = {
+  id: string
+  label: string
+  description: string
+  nodeType: StoryNodeType
+  position: [number, number, number]
+  explored: boolean
+  current: boolean
+  selected: boolean
+  travelDisabledReason?: string
+}
+
+type MapRenderEdge = {
+  id: string
+  from: [number, number, number]
+  to: [number, number, number]
+  hidden: boolean
+  blocked: boolean
+}
+
+function normalizeMapPosition(node: StoryNode): [number, number, number] {
+  const position = getNodePosition(node)
+
+  return [(position.x - 300) / 38, (300 - position.y) / 38, 0]
+}
+
+function getNodeTypeColor(nodeType: StoryNodeType) {
+  const colors: Record<StoryNodeType, string> = {
+    origin: '#38bdf8',
+    settlement: '#f59e0b',
+    road: '#a3a3a3',
+    wilds: '#22c55e',
+    watch: '#818cf8',
+    crypt: '#a855f7',
+    court: '#f43f5e',
+    ritual: '#14b8a6',
+    hazard: '#ef4444',
+    mystery: '#64748b',
+  }
+
+  return colors[nodeType]
+}
+
+function getNodeTypeDescription(nodeType: StoryNodeType) {
+  const descriptions: Record<StoryNodeType, string> = {
+    origin: 'The known starting point of this route.',
+    settlement: 'A lived-in place where social pressure, testimony, shelter, or supplies may matter.',
+    road: 'A route node where travel, interception, delay, or discovery is likely.',
+    wilds: 'An unsettled place where weather, terrain, animals, or isolation may matter.',
+    watch: 'A vantage point where routes, warnings, records, or old advice may surface.',
+    crypt: 'A buried or death-touched place where ritual pressure and danger are likely.',
+    court: 'A place of authority, witness, judgment, or public consequence.',
+    ritual: 'A place where symbols, rules, names, or sequence may matter.',
+    hazard: 'A dangerous route where harm, obstruction, or ambush may happen.',
+    mystery: 'An unknown place whose exact role is not yet clear.',
+  }
+
+  return descriptions[nodeType]
+}
+
+function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
+  const explored = new Set(state.exploredNodeIds)
+  const adjacentTargets = getAdjacentTravelTargets(state)
+  const visibleNodeIds = new Set([...state.exploredNodeIds, ...adjacentTargets.map((target) => target.node.id)])
+  const selectedVisibleNodeId = visibleNodeIds.has(selectedNodeId) ? selectedNodeId : state.currentNodeId
+  const visibleNodes = storySchema.nodes.filter((node) => visibleNodeIds.has(node.id))
+  const nodes: MapRenderNode[] = visibleNodes.map((node) => {
+    const isExplored = explored.has(node.id)
+    const travelDisabledReason = getTravelDisabledReason(state, node.id)
+
+    return {
+      id: node.id,
+      label: isExplored ? node.publicName : getHiddenNodeTypeLabel(node.nodeType),
+      description: isExplored ? node.description : getNodeTypeDescription(node.nodeType),
+      nodeType: node.nodeType,
+      position: normalizeMapPosition(node),
+      explored: isExplored,
+      current: node.id === state.currentNodeId,
+      selected: node.id === selectedVisibleNodeId,
+      travelDisabledReason,
+    }
+  })
+  const edgeKeys = new Set<string>()
+  const edges: MapRenderEdge[] = []
+  const addEdge = (fromNode: StoryNode, exit: StoryExit) => {
+    const toNode = getNode(exit.toNodeId)
+
+    if (!visibleNodeIds.has(fromNode.id) || !visibleNodeIds.has(toNode.id)) {
+      return
+    }
+
+    const hidden = !explored.has(fromNode.id) || !explored.has(toNode.id)
+    const key = [fromNode.id, toNode.id].sort().join('--')
+
+    if (edgeKeys.has(key)) {
+      return
+    }
+
+    edgeKeys.add(key)
+    edges.push({
+      id: `${fromNode.id}-${toNode.id}`,
+      from: normalizeMapPosition(fromNode),
+      to: normalizeMapPosition(toNode),
+      hidden,
+      blocked: Boolean(getTravelBlockerReason(state, exit)),
+    })
+  }
+
+  storySchema.nodes.filter((node) => explored.has(node.id)).forEach((node) => {
+    getNodeExits(node).forEach((exit) => {
+      if (explored.has(exit.toNodeId)) {
+        addEdge(node, exit)
+      }
+    })
+  })
+  adjacentTargets.forEach((target) => addEdge(getNode(state.currentNodeId), target.exit))
+
+  return { nodes, edges, selectedVisibleNodeId }
+}
+
+function ThreeMapEdge({ edge }: { edge: MapRenderEdge }) {
+  const from = new THREE.Vector3(...edge.from)
+  const to = new THREE.Vector3(...edge.to)
+  const midpoint = from.clone().add(to).multiplyScalar(0.5)
+  const delta = to.clone().sub(from)
+  const length = delta.length()
+  const rotationZ = -Math.atan2(delta.x, delta.y)
+
+  return (
+    <mesh position={midpoint} rotation={[0, 0, rotationZ]}>
+      <cylinderGeometry args={[edge.blocked ? 0.035 : 0.025, edge.blocked ? 0.035 : 0.025, length, 8]} />
+      <meshBasicMaterial color={edge.blocked ? '#ef4444' : edge.hidden ? '#64748b' : '#94a3b8'} />
+    </mesh>
+  )
+}
+
+function ThreeMapNode({ node, onSelectNode }: { node: MapRenderNode; onSelectNode: (nodeId: string) => void }) {
+  const color = getNodeTypeColor(node.nodeType)
+
+  return (
+    <group position={node.position} onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelectNode(node.id) }}>
+      {node.current ? (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.54, 0.035, 12, 40]} />
+          <meshBasicMaterial color="#f8fafc" />
+        </mesh>
+      ) : null}
+      {node.selected ? (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.72, 0.025, 12, 40]} />
+          <meshBasicMaterial color="#facc15" />
+        </mesh>
+      ) : null}
+      {node.nodeType === 'watch' ? <CylinderGeometryNode color={color} /> : null}
+      {node.nodeType === 'crypt' || node.nodeType === 'ritual' ? <OctahedronGeometryNode color={color} /> : null}
+      {node.nodeType === 'hazard' ? <ConeGeometryNode color={color} /> : null}
+      {node.nodeType === 'road' || node.nodeType === 'origin' ? <BoxGeometryNode color={color} /> : null}
+      {node.nodeType === 'settlement' || node.nodeType === 'court' || node.nodeType === 'wilds' || node.nodeType === 'mystery' ? <SphereGeometryNode color={color} /> : null}
+    </group>
+  )
+}
+
+function SphereGeometryNode({ color }: { color: string }) {
+  return (
+    <mesh>
+      <sphereGeometry args={[0.34, 24, 16]} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
+function BoxGeometryNode({ color }: { color: string }) {
+  return (
+    <mesh>
+      <boxGeometry args={[0.72, 0.34, 0.3]} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
+function ConeGeometryNode({ color }: { color: string }) {
+  return (
+    <mesh rotation={[0, 0, Math.PI]}>
+      <coneGeometry args={[0.38, 0.72, 5]} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
+function CylinderGeometryNode({ color }: { color: string }) {
+  return (
+    <mesh>
+      <cylinderGeometry args={[0.26, 0.34, 0.78, 10]} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
+function OctahedronGeometryNode({ color }: { color: string }) {
+  return (
+    <mesh>
+      <octahedronGeometry args={[0.43, 0]} />
+      <meshStandardMaterial color={color} />
+    </mesh>
+  )
+}
+
+function ThreeMapScene({ model, onSelectNode }: { model: ReturnType<typeof getMapRenderModel>; onSelectNode: (nodeId: string) => void }) {
+  return (
+    <>
+      <ambientLight intensity={0.9} />
+      <pointLight position={[0, 0, 8]} intensity={2.2} />
+      {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
+      {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} />)}
+      <MapControls enableRotate={false} screenSpacePanning makeDefault />
+    </>
+  )
+}
+
+function MapNodeTypeBadge({ nodeType }: { nodeType: StoryNodeType }) {
+  return (
+    <Badge variant="outline" className="capitalize" style={{ borderColor: getNodeTypeColor(nodeType) }}>
+      {nodeType}
+    </Badge>
   )
 }
 
@@ -1010,94 +2090,75 @@ function MapGraphView({
   state,
   selectedNodeId,
   onSelectNode,
+  onTravelNode,
   onOpenCodex,
 }: {
   state: CampaignState
   selectedNodeId: string
   onSelectNode: (nodeId: string) => void
+  onTravelNode: (nodeId: string) => void
   onOpenCodex: (nodeId: string) => void
 }) {
-  const explored = new Set(state.exploredNodeIds)
-  const graphLayout: Record<string, { x: number; y: number }> = {
-    'graymere-yard': { x: 300, y: 520 },
-    'ash-farms': { x: 180, y: 385 },
-    'old-watchtower': { x: 420, y: 385 },
-    'blackpine-road': { x: 285, y: 250 },
-    'barrow-crypt': { x: 300, y: 110 },
-    'king-return': { x: 470, y: 65 },
-  }
-  const exploredNodes = storySchema.nodes.filter((node) => explored.has(node.id))
-  const exploredEdges = exploredNodes.flatMap((node) =>
-    node.nextNodeIds
-      .filter((nextNodeId) => explored.has(nextNodeId))
-      .map((nextNodeId) => ({ from: node.id, to: nextNodeId })),
-  )
-  const currentNode = getNode(state.currentNodeId)
-  const selectedNode = getNode(selectedNodeId)
-  const hiddenExits = currentNode.nextNodeIds.filter((nodeId) => !explored.has(nodeId))
-  const currentPosition = graphLayout[currentNode.id]
+  const model = getMapRenderModel(state, selectedNodeId)
+  const selectedRenderNode = model.nodes.find((node) => node.id === model.selectedVisibleNodeId) ?? model.nodes[0]
+  const selectedStoryNode = getNode(selectedRenderNode.id)
+  const canTravelToSelectedNode = !selectedRenderNode.travelDisabledReason
 
   return (
-    <Card className="min-h-[680px]">
-      <CardHeader>
+    <Card className="min-h-0 lg:h-full">
+      <CardHeader className="shrink-0">
         <CardTitle>Map</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="rounded-2xl border bg-background p-4">
-          <svg viewBox="0 0 600 600" className="h-[560px] w-full" role="img" aria-label="Explored story map graph">
-            {exploredEdges.map((edge) => {
-              const from = graphLayout[edge.from]
-              const to = graphLayout[edge.to]
-
-              return <line key={`${edge.from}-${edge.to}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="currentColor" strokeOpacity="0.28" strokeWidth="4" />
-            })}
-
-            {hiddenExits.map((nodeId, index) => {
-              const angle = hiddenExits.length === 1 ? -90 : -125 + index * 70
-              const radians = (angle * Math.PI) / 180
-              const x = currentPosition.x + Math.cos(radians) * 105
-              const y = currentPosition.y + Math.sin(radians) * 105
-
-              return (
-                <g key={nodeId}>
-                  <line x1={currentPosition.x} y1={currentPosition.y} x2={x} y2={y} stroke="currentColor" strokeOpacity="0.22" strokeWidth="3" strokeDasharray="8 10" />
-                  <circle cx={x} cy={y} r="25" fill="var(--muted)" stroke="currentColor" strokeOpacity="0.28" strokeDasharray="5 6" />
-                  <text x={x} y={y + 6} textAnchor="middle" className="fill-muted-foreground text-xl font-semibold">?</text>
-                </g>
-              )
-            })}
-
-            {exploredNodes.map((node) => {
-              const position = graphLayout[node.id]
-              const isCurrent = node.id === state.currentNodeId
-              const isSelected = node.id === selectedNodeId
-
-              return (
-                <g key={node.id} role="button" tabIndex={0} className="cursor-pointer outline-none" onClick={() => onSelectNode(node.id)} onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    onSelectNode(node.id)
-                  }
-                }}>
-                  <circle cx={position.x} cy={position.y} r={isCurrent ? 39 : 33} fill={isCurrent ? 'var(--primary)' : 'var(--background)'} stroke="currentColor" strokeOpacity={isCurrent || isSelected ? '0.95' : '0.35'} strokeWidth={isSelected ? '6' : '4'} />
-                  <image href={storyIconAssets[node.iconAssetId]} x={position.x - 16} y={position.y - 16} width="32" height="32" />
-                  <text x={position.x} y={position.y + 57} textAnchor="middle" className="fill-foreground text-sm font-medium">{node.publicName}</text>
-                </g>
-              )
-            })}
-          </svg>
+      <CardContent className="min-h-0 flex-1">
+        <div className="grid min-h-0 gap-4 xl:h-full xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-h-0 flex-col rounded-2xl border bg-background p-4">
+            <div className="h-[min(46svh,460px)] min-h-[260px] max-h-[460px] shrink-0 overflow-hidden rounded-xl border bg-muted/20">
+              <Canvas orthographic camera={{ position: [0, 0, 12], zoom: 44 }}>
+                <color attach="background" args={['#101010']} />
+                <ThreeMapScene model={model} onSelectNode={onSelectNode} />
+              </Canvas>
+            </div>
+            <div className="mt-4 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1" aria-label="Map locations">
+              {model.nodes.map((node) => (
+                <div key={node.id} className="grid gap-2 rounded-xl border bg-background p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <button type="button" className="text-left" aria-current={node.current ? 'location' : undefined} onClick={() => onSelectNode(node.id)}>
+                    <span className="block text-sm font-medium">{node.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{node.explored ? 'Explored' : getHiddenNodeTypeLabel(node.nodeType)}</span>
+                  </button>
+                  <MapNodeTypeBadge nodeType={node.nodeType} />
+                  <Button type="button" size="sm" variant="outline" disabled={Boolean(node.travelDisabledReason)} title={node.travelDisabledReason} onClick={() => onTravelNode(node.id)}>
+                    {node.explored ? 'Travel' : 'Explore'}
+                  </Button>
+                  {node.travelDisabledReason && !node.current ? <p className="text-xs text-muted-foreground sm:col-span-3">{node.travelDisabledReason}</p> : null}
+                </div>
+              ))}
+            </div>
           </div>
-          <aside className="rounded-2xl border bg-background p-4">
+          <aside className="min-h-0 overflow-y-auto rounded-2xl border bg-background p-4">
             <div className="flex items-start gap-3">
-              <StoryIcon id={selectedNode.iconAssetId} label={selectedNode.publicName} className="size-9 rounded-lg" />
+              {selectedRenderNode.explored ? <StoryIcon id={selectedStoryNode.iconAssetId} label={selectedRenderNode.label} className="size-9 rounded-lg" /> : <span className="inline-flex size-9 items-center justify-center rounded-lg border bg-muted text-sm font-semibold">?</span>}
               <div>
-                <h3 className="text-lg font-semibold">{selectedNode.publicName}</h3>
-                {selectedNode.id === state.currentNodeId ? <Badge className="mt-2" variant="secondary">current</Badge> : null}
+                <h3 className="text-lg font-semibold">{selectedRenderNode.label}</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <MapNodeTypeBadge nodeType={selectedRenderNode.nodeType} />
+                  {!selectedRenderNode.explored ? <Badge variant="secondary">unexplored</Badge> : null}
+                </div>
+                {selectedRenderNode.current ? (
+                  <Badge className="mt-2" variant="secondary">
+                    current
+                  </Badge>
+                ) : null}
               </div>
             </div>
-            <p className="mt-4 font-serif text-sm leading-6 text-muted-foreground">{selectedNode.description}</p>
+            <p className="mt-4 font-serif text-sm leading-6 text-muted-foreground">{selectedRenderNode.description}</p>
             <div className="mt-4 flex flex-col gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenCodex(selectedNode.id)}>Open in codex</Button>
+              <Button type="button" disabled={!canTravelToSelectedNode} title={selectedRenderNode.travelDisabledReason} onClick={() => onTravelNode(selectedRenderNode.id)}>
+                {selectedRenderNode.explored ? 'Travel here' : 'Explore this route'}
+              </Button>
+              {selectedRenderNode.travelDisabledReason && !selectedRenderNode.current ? <p className="font-serif text-sm leading-6 text-muted-foreground">{selectedRenderNode.travelDisabledReason}</p> : null}
+              {selectedRenderNode.explored ? <Button type="button" variant="outline" onClick={() => onOpenCodex(selectedRenderNode.id)}>
+                Open in codex
+              </Button> : null}
             </div>
           </aside>
         </div>
@@ -1106,32 +2167,188 @@ function MapGraphView({
   )
 }
 
-function CharactersPanel({ characters, npcs }: { characters: Character[]; npcs: StoryNpc[] }) {
+function PlayerPanel({ state }: { state: CampaignState }) {
+  const player = state.player
+  const activeNpcId = state.currentEvent?.npcTemplate?.id
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Characters</CardTitle>
+        <CardTitle>{player.name}</CardTitle>
+        <CardDescription className="font-serif">{player.role}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {characters.map((character) => (
-          <div key={character.id} className="rounded-xl border bg-background p-3">
-            <div className="flex items-center gap-2">
-              <span className="size-3 rounded-full" style={{ background: character.color }} />
-              <p className="font-medium">{character.name}</p>
+      <CardContent className="flex flex-col gap-4">
+        <div className="iff-scene-character rounded-xl border bg-background p-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-16 w-12 items-center justify-center overflow-hidden rounded-lg bg-primary">
+              <img src={player.portraitAsset} alt="" className="h-full w-full object-cover" />
+            </span>
+            <div>
+              <p className="text-sm font-medium">Health</p>
+              <p className="font-serif text-sm text-muted-foreground">
+                {player.health.current} / {player.health.max}
+              </p>
             </div>
-            <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{character.background.storyRole}</p>
           </div>
-        ))}
-        {npcs.map((npc) => (
-          <div key={npc.id} className="rounded-xl border bg-muted/20 p-3">
-            <div className="flex items-center gap-2">
-              <p className="font-medium">{npc.name}</p>
-            </div>
-            <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{npc.description}</p>
+          <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{player.backstory.want}</p>
+        </div>
+
+        <section>
+          <h3 className="text-sm font-medium">Inventory</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {player.inventory.filter((item) => item.visible).map((item) => (
+              <Badge key={item.id} variant="outline">
+                {item.name}
+              </Badge>
+            ))}
           </div>
-        ))}
+        </section>
+
+        <section>
+          <h3 className="text-sm font-medium">Memory</h3>
+          <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{player.memory[player.memory.length - 1]}</p>
+        </section>
+
+        {state.storyNpcs.length > 0 ? (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-sm font-medium">Scene presence</h3>
+            {state.storyNpcs.map((npc) => {
+              const isInScene = npc.id === activeNpcId
+
+              return (
+                <div key={npc.id} data-scene-state={isInScene ? 'present' : 'away'} className="iff-scene-character rounded-xl border bg-muted/20 p-3 transition-all duration-300 ease-out data-[scene-state=away]:translate-x-2 data-[scene-state=away]:opacity-55">
+                  <p className="font-medium">{npc.name}</p>
+                  <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{npc.description}</p>
+                </div>
+              )
+            })}
+          </section>
+        ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+function ChoicePanel({
+  state,
+  isAdvancing,
+  activeLineGatedEntry,
+  onBeginScene,
+  onChoose,
+  onContinue,
+}: {
+  state: CampaignState
+  isAdvancing: boolean
+  activeLineGatedEntry?: FeedEntry
+  onBeginScene: () => void
+  onChoose: (choice: StoryChoice) => void
+  onContinue: () => void
+}) {
+  if (activeLineGatedEntry) {
+    const canContinue = hasUnrevealedLines(activeLineGatedEntry)
+
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full">
+            <PlayIcon data-icon="inline-start" />
+            {canContinue ? 'Continue' : 'Waiting for next line…'}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (state.outcome !== 'running') {
+    return null
+  }
+
+  if (!state.sceneOpened || !state.currentEvent) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <Button type="button" size="lg" onClick={onBeginScene} disabled={isAdvancing} className="w-full">
+            <PlayIcon data-icon="inline-start" />
+            {isAdvancing ? 'Generating…' : 'Begin scene'}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const choices = getAvailableChoices(state)
+  const currentEvent = state.currentEvent
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Choose how to proceed</CardTitle>
+        <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {choices.map((choice) => {
+          const disabledReason = getChoiceDisabledReason(state, choice)
+          const disabled = Boolean(disabledReason) || isAdvancing
+
+          return (
+            <Button key={choice.id} type="button" variant="outline" disabled={disabled} className="h-auto justify-start whitespace-normal py-4 text-left" onClick={() => onChoose(choice)}>
+              <span className="grid w-full gap-2">
+                <span className="font-medium">{choice.label}</span>
+                {choice.optionSummary ? <span className="font-serif text-sm font-normal text-muted-foreground">{choice.optionSummary}</span> : null}
+                <span className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="text-[0.65rem] uppercase tracking-[0.08em]">
+                    {choice.mode}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[0.65rem] uppercase tracking-[0.08em]">
+                    {choice.tone}
+                  </Badge>
+                  {(choice.skillTags ?? []).map((tag) => (
+                    <Badge key={tag} variant="secondary" className="text-[0.65rem] uppercase tracking-[0.08em]">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {disabledReason ? (
+                    <Badge variant="outline" className="text-[0.65rem] uppercase tracking-[0.08em]">
+                      {disabledReason}
+                    </Badge>
+                  ) : null}
+                </span>
+              </span>
+            </Button>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ItemTagBadge({ tag }: { tag: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const definition = itemTagDefinitions[tag] ?? {
+    label: tag,
+    summary: 'A notable quality of this item.',
+    detail: 'Its usefulness depends on the choices available in the current scene.',
+  }
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        className="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold capitalize text-foreground transition-colors duration-200 hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title={`${definition.summary} ${definition.detail}`}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((value) => !value)}
+      >
+        {definition.label}
+      </button>
+      {isOpen ? (
+        <span className="absolute left-0 top-full z-20 mt-2 w-72 rounded-xl border bg-popover p-3 text-left text-popover-foreground shadow-lg">
+          <span className="block text-xs font-semibold uppercase tracking-[0.08em]">{definition.label}</span>
+          <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{definition.summary}</span>
+          <span className="mt-2 block font-serif text-sm leading-6">{definition.detail}</span>
+        </span>
+      ) : null}
+    </span>
   )
 }
 
@@ -1140,47 +2357,55 @@ function CodexPanel({
   section,
   selectedNodeId,
   selectedPersonId,
+  selectedItemId,
   onSelectSection,
   onSelectNode,
   onSelectPerson,
+  onSelectItem,
   onOpenMap,
 }: {
   state: CampaignState
   section: CodexSection
   selectedNodeId: string
   selectedPersonId: string
+  selectedItemId?: string
   onSelectSection: (section: CodexSection) => void
   onSelectNode: (nodeId: string) => void
   onSelectPerson: (personId: string) => void
+  onSelectItem: (itemId: string) => void
   onOpenMap: (nodeId: string) => void
 }) {
   const exploredNodes = state.exploredNodeIds.map(getNode)
   const selectedNode = exploredNodes.find((node) => node.id === selectedNodeId) ?? exploredNodes[0]
-  const selectedCharacter = state.characters.find((character) => character.id === selectedPersonId)
   const selectedNpc = state.storyNpcs.find((npc) => npc.id === selectedPersonId)
-  const currentEventNames = state.eventHistory.map((event) => event.name)
-  const seenEventNames = [...new Set(currentEventNames)]
+  const selectedItem = state.player.inventory.find((item) => item.id === selectedItemId) ?? state.player.inventory[0]
+  const seenEventNames = [...new Set(state.eventHistory.map((event) => event.name))]
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-h-0 lg:h-full">
+      <CardHeader className="shrink-0">
         <CardTitle>Codex</CardTitle>
       </CardHeader>
-      <CardContent className="grid items-stretch gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="flex min-h-[560px] flex-col gap-3 rounded-2xl border bg-background p-4">
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant={section === 'people' ? 'secondary' : 'outline'} onClick={() => onSelectSection('people')}>People</Button>
-            <Button type="button" variant={section === 'places' ? 'secondary' : 'outline'} onClick={() => onSelectSection('places')}>Places</Button>
+      <CardContent className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 rounded-2xl border bg-background p-4 lg:max-h-none">
+          <div className="grid grid-cols-3 gap-2">
+            <Button type="button" variant={section === 'people' ? 'secondary' : 'outline'} onClick={() => onSelectSection('people')}>
+              People
+            </Button>
+            <Button type="button" variant={section === 'places' ? 'secondary' : 'outline'} onClick={() => onSelectSection('places')}>
+              Places
+            </Button>
+            <Button type="button" variant={section === 'inventory' ? 'secondary' : 'outline'} onClick={() => onSelectSection('inventory')}>
+              Items
+            </Button>
           </div>
           <Separator />
-          <div className="flex flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {section === 'people' ? (
               <>
-                {state.characters.map((character) => (
-                  <Button key={character.id} type="button" variant={selectedPersonId === character.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectPerson(character.id)}>
-                    {character.name}
-                  </Button>
-                ))}
+                <Button type="button" variant={selectedPersonId === state.player.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectPerson(state.player.id)}>
+                  {state.player.name}
+                </Button>
                 {state.storyNpcs.map((npc) => (
                   <Button key={npc.id} type="button" variant={selectedPersonId === npc.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectPerson(npc.id)}>
                     {npc.name}
@@ -1190,44 +2415,57 @@ function CodexPanel({
             ) : null}
             {section === 'places'
               ? exploredNodes.map((node) => (
-                <Button key={node.id} type="button" variant={selectedNode.id === node.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectNode(node.id)}>
-                  {node.publicName}
-                </Button>
-              ))
+                  <Button key={node.id} type="button" variant={selectedNode.id === node.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectNode(node.id)}>
+                    {node.publicName}
+                  </Button>
+                ))
+              : null}
+            {section === 'inventory'
+              ? state.player.inventory.filter((item) => item.visible).map((item) => (
+                  <Button key={item.id} type="button" variant={selectedItem?.id === item.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectItem(item.id)}>
+                    {item.name}
+                  </Button>
+                ))
               : null}
           </div>
         </aside>
 
-        <section className="flex min-h-[560px] flex-col rounded-2xl border bg-background p-5">
-          {section === 'people' && selectedCharacter ? (
+        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-4 overflow-y-auto rounded-2xl border bg-background p-5 lg:max-h-none">
+          {section === 'people' && selectedPersonId === state.player.id ? (
             <div className="flex flex-col gap-4">
               <div className="flex items-start gap-4">
-                <span className="inline-flex size-20 items-center justify-center rounded-lg bg-primary">
-                  <img src={selectedCharacter.portraitAsset} alt="" className="size-14 object-contain" />
+                <span className="inline-flex h-24 w-[4.5rem] items-center justify-center overflow-hidden rounded-lg bg-primary">
+                  <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
                 </span>
                 <div>
-                  <h4 className="text-xl font-semibold">{selectedCharacter.name}</h4>
-                  <p className="text-sm text-muted-foreground">{selectedCharacter.role}</p>
+                  <h4 className="text-xl font-semibold">{state.player.name}</h4>
+                  <p className="text-sm text-muted-foreground">{state.player.role}</p>
+                  <Badge className="mt-2" variant="secondary">
+                    Health {state.player.health.current}/{state.player.health.max}
+                  </Badge>
                 </div>
               </div>
               <div className="font-serif text-sm leading-6 text-muted-foreground">
-                <p>{selectedCharacter.background.storyRole}</p>
-                <p className="mt-2">{selectedCharacter.background.home}</p>
-                <p className="mt-2">{selectedCharacter.background.want}</p>
-                <p className="mt-2">{selectedCharacter.background.closeTie}</p>
+                <p>{state.player.backstory.origin}</p>
+                <p className="mt-2">{state.player.backstory.wound}</p>
+                <p className="mt-2">{state.player.backstory.want}</p>
               </div>
               <div>
-                <h5 className="text-sm font-medium">Inventory</h5>
+                <h5 className="text-sm font-medium">Skill color</h5>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedCharacter.inventory.map((item) => (
-                    <Badge key={item} variant="outline">{item}</Badge>
+                  {state.player.skillTags.map((skill) => (
+                    <Badge key={skill} variant="outline">
+                      {skill}
+                    </Badge>
                   ))}
                 </div>
               </div>
               <div>
                 <h5 className="text-sm font-medium">Story so far</h5>
                 <ul className="mt-2 flex flex-col gap-2 font-serif text-sm leading-6 text-muted-foreground">
-                  {selectedCharacter.memory.map((memory) => <li key={memory}>{memory}</li>)}
+                  {state.player.memory.map((memory) => (
+                    <li key={memory}>{memory}</li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -1243,7 +2481,9 @@ function CodexPanel({
               <div>
                 <h5 className="text-sm font-medium">Story so far</h5>
                 <ul className="mt-2 flex flex-col gap-2 font-serif text-sm leading-6 text-muted-foreground">
-                  {selectedNpc.memory.map((memory) => <li key={memory}>{memory}</li>)}
+                  {selectedNpc.memory.map((memory) => (
+                    <li key={memory}>{memory}</li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -1255,7 +2495,11 @@ function CodexPanel({
                 <StoryIcon id={selectedNode.iconAssetId} label={selectedNode.publicName} className="size-8 rounded-md" />
                 <div>
                   <h4 className="text-lg font-semibold">{selectedNode.publicName}</h4>
-                  {selectedNode.id === state.currentNodeId ? <Badge className="mt-2" variant="secondary">current</Badge> : null}
+                  {selectedNode.id === state.currentNodeId ? (
+                    <Badge className="mt-2" variant="secondary">
+                      current
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
               <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{selectedNode.description}</p>
@@ -1265,19 +2509,33 @@ function CodexPanel({
             </div>
           ) : null}
 
-        {seenEventNames.length > 0 ? (
-          <>
-            <Separator />
-            <section>
-              <h3 className="text-sm font-medium">Seen events</h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {seenEventNames.map((eventName) => (
-                  <Badge key={eventName} variant="secondary">{eventName}</Badge>
-                ))}
-              </div>
-            </section>
-          </>
-        ) : null}
+          {section === 'inventory' && selectedItem ? (
+            <div>
+              <h4 className="text-xl font-semibold">{selectedItem.name}</h4>
+              <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{selectedItem.description}</p>
+              {selectedItem.tags && selectedItem.tags.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedItem.tags.map((tag) => <ItemTagBadge key={tag} tag={tag} />)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {seenEventNames.length > 0 ? (
+            <>
+              <Separator />
+              <section>
+                <h3 className="text-sm font-medium">Seen events</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {seenEventNames.map((eventName) => (
+                    <Badge key={eventName} variant="secondary">
+                      {eventName}
+                    </Badge>
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : null}
         </section>
       </CardContent>
     </Card>
@@ -1288,17 +2546,17 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Debug narrator channel</CardTitle>
-        <CardDescription className="font-serif">Private character questions and narrator hints. Hidden from the normal audience view.</CardDescription>
+        <CardTitle>Debug channel</CardTitle>
+        <CardDescription className="font-serif">Prompt traces, selected choices, generated text, and applied effects.</CardDescription>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-72">
           <div className="flex flex-col gap-3 pr-3">
-            {entries.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No private exchanges yet.</p> : null}
+            {entries.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No traces yet.</p> : null}
             {entries.map((entry) => (
               <article key={entry.id} className="rounded-xl border bg-muted/20 p-3">
                 <div className="mb-1 flex items-center justify-between">
-                  <Badge variant="outline">{entry.characterName ?? 'Narrator'}</Badge>
+                  <Badge variant="outline">{entry.label ?? 'Trace'}</Badge>
                   <span className="text-xs text-muted-foreground">Turn {entry.turn}</span>
                 </div>
                 <p className="whitespace-pre-wrap font-serif text-sm leading-6 text-muted-foreground">
@@ -1322,10 +2580,12 @@ function App() {
   const [currentView, setCurrentView] = useState<AppView>('story')
   const [codexSection, setCodexSection] = useState<CodexSection>('people')
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.currentNodeId)
-  const [selectedPersonId, setSelectedPersonId] = useState(initialCharacters[0].id)
+  const [selectedPersonId, setSelectedPersonId] = useState(initialState.player.id)
+  const [selectedItemId, setSelectedItemId] = useState(initialState.player.inventory[0]?.id)
   const [llmError, setLlmError] = useState<string | undefined>()
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
+  const activeLineGatedEntry = useMemo(() => getActiveLineGatedEntry(campaign), [campaign])
 
   const appendFeedEntry = (entry: Omit<FeedEntry, 'id'>) => {
     const id = createId(entry.kind)
@@ -1341,8 +2601,16 @@ function App() {
 
   const streamFeedEntry = async (entryId: string, prompt: string) => {
     let pendingLine = ''
-    const appendCompletedText = (text: string) => {
-      updateFeedEntry(entryId, (entry) => ({ ...entry, text: `${entry.text}${text}` }))
+    const appendGeneratedText = (text: string) => {
+      updateFeedEntry(entryId, (entry) => {
+        const generatedText = `${entry.generatedText ?? entry.text}${text}`
+        const generatedLineCount = splitFeedLines(generatedText).length
+        const shouldAutoRevealFirstLine = entry.revealMode === 'line-gated' && (entry.revealedLineCount ?? 0) === 0 && generatedLineCount > 0
+        const revealedLineCount = entry.revealMode === 'line-gated' ? shouldAutoRevealFirstLine ? 1 : entry.revealedLineCount ?? 0 : generatedLineCount
+        const nextEntry = { ...entry, generatedText, revealedLineCount }
+
+        return { ...nextEntry, text: getRevealedFeedText(nextEntry, revealedLineCount) }
+      })
     }
     const fullText = await streamLocalText(llmSettings, prompt, (chunk) => {
       pendingLine += chunk
@@ -1350,15 +2618,30 @@ function App() {
       pendingLine = lines.pop() ?? ''
 
       if (lines.length > 0) {
-        appendCompletedText(`${lines.join('\n')}\n`)
+        appendGeneratedText(`${lines.join('\n')}\n`)
       }
     })
 
     if (pendingLine.trim().length > 0) {
-      appendCompletedText(pendingLine)
+      appendGeneratedText(pendingLine)
     }
 
     return fullText
+  }
+
+  const advanceFeedLine = () => {
+    const entryId = getActiveLineGatedEntry(campaign)?.id
+
+    if (!entryId) {
+      return
+    }
+
+    updateFeedEntry(entryId, (entry) => {
+      const nextRevealedLineCount = Math.min((entry.revealedLineCount ?? 0) + 1, getFeedLineCount(entry))
+      const nextEntry = { ...entry, revealedLineCount: nextRevealedLineCount }
+
+      return { ...nextEntry, text: getRevealedFeedText(nextEntry, nextRevealedLineCount) }
+    })
   }
 
   const appendDebugEntry = (entry: Omit<DebugEntry, 'id'>) => {
@@ -1367,12 +2650,103 @@ function App() {
     return id
   }
 
-  const updateDebugEntry = (id: string, updater: (entry: DebugEntry) => DebugEntry) => {
-    setCampaign((state) => ({ ...state, debugFeed: state.debugFeed.map((entry) => (entry.id === id ? updater(entry) : entry)) }))
+  const openSceneFromState = async (stateAtStart: CampaignState, leadingFeedEntries: Array<Omit<FeedEntry, 'id'>> = []) => {
+    if (isAdvancing || stateAtStart.outcome !== 'running') {
+      return
+    }
+
+    setIsAdvancing(true)
+    setLlmError(undefined)
+
+    let narratorEntryId: string | undefined
+
+    try {
+      await assertLocalModelAvailable(llmSettings)
+
+      const turn = stateAtStart.turn
+      const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
+      const node = getNode(stateAtStart.currentNodeId)
+      const { storyNpcs } = getOrCreateEventNpc(stateAtStart, event)
+      const sceneState = {
+        ...stateAtStart,
+        currentEvent: event,
+        sceneOpened: true,
+        storyNpcs,
+        eventHistory: stateAtStart.eventHistory.some((seenEvent) => seenEvent.id === event.id) ? stateAtStart.eventHistory : [...stateAtStart.eventHistory, event].slice(-20),
+      }
+      const feedEntries = leadingFeedEntries.map((entry) => ({ id: createId(entry.kind), ...entry }))
+      const currentNarratorEntryId = createId('narration')
+      narratorEntryId = currentNarratorEntryId
+
+      setCampaign((state) => ({
+        ...sceneState,
+        feed: [
+          ...state.feed,
+          ...feedEntries,
+          { id: createId('scene'), turn, kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
+          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true },
+        ],
+        debugFeed: state.debugFeed,
+      }))
+      requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
+
+      const prompt = buildSceneOpeningPrompt(sceneState, event)
+      appendDebugEntry({ turn, label: 'Scene opening prompt', text: prompt })
+      const varietyWarnings = getChoiceVarietyWarnings(event)
+      if (varietyWarnings.length > 0) {
+        appendDebugEntry({ turn, label: 'Choice variety warnings', text: varietyWarnings.join('\n') })
+      }
+
+      await streamFeedEntry(currentNarratorEntryId, prompt)
+      updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
+    } catch (error) {
+      if (narratorEntryId) {
+        updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, streaming: false }))
+      }
+      setLlmError(error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.')
+    } finally {
+      setIsAdvancing(false)
+    }
   }
 
-  const advanceOneTurn = async () => {
+  const travelToNode = async (nodeId: string) => {
+    if (isAdvancing || campaign.outcome !== 'running' || getActiveLineGatedEntry(campaign)) {
+      return
+    }
+
+    const disabledReason = getTravelDisabledReason(campaign, nodeId)
+    const destination = getNode(nodeId)
+
+    if (disabledReason) {
+      appendFeedEntry({ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId: campaign.currentNodeId, text: disabledReason })
+      return
+    }
+
+    const wasExplored = campaign.exploredNodeIds.includes(nodeId)
+    const travelledState: CampaignState = {
+      ...campaign,
+      currentNodeId: nodeId,
+      currentEvent: undefined,
+      sceneOpened: false,
+      exploredNodeIds: wasExplored ? campaign.exploredNodeIds : [...campaign.exploredNodeIds, nodeId],
+      storyNpcs: campaign.storyNpcs.map((npc) => ({ ...npc, currentNodeId: nodeId })),
+    }
+
+    setSelectedNodeId(nodeId)
+    setCurrentView('story')
+    await openSceneFromState(travelledState, [{ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId, text: wasExplored ? `Travelled to ${destination.publicName}.` : `Discovered ${destination.publicName}.` }])
+  }
+
+  const beginScene = async () => {
     if (isAdvancing || campaign.outcome !== 'running') {
+      return
+    }
+
+    await openSceneFromState(campaign)
+  }
+
+  const chooseAction = async (choice: StoryChoice) => {
+    if (isAdvancing || campaign.outcome !== 'running' || !campaign.currentEvent || getChoiceDisabledReason(campaign, choice)) {
       return
     }
 
@@ -1384,132 +2758,78 @@ function App() {
 
       const stateAtStart = campaign
       const turn = stateAtStart.turn
-      const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
-      const isNewScene = !stateAtStart.currentEvent
-      const sceneStartedTurn = stateAtStart.currentEventStartedTurn ?? turn
-      const sceneAge = Math.max(1, turn - sceneStartedTurn + 1)
-      const node = getNode(stateAtStart.currentNodeId)
-      const { storyNpcs, sceneNpc } = getOrCreateEventNpc(stateAtStart, event)
-      const turnState = { ...stateAtStart, currentEvent: event, currentEventStartedTurn: sceneStartedTurn, storyNpcs }
-
-      setCampaign((state) => ({
-        ...state,
-        currentEvent: event,
-        currentEventStartedTurn: sceneStartedTurn,
-        storyNpcs,
-        eventHistory: isNewScene ? [...state.eventHistory, event].slice(-20) : state.eventHistory,
-      }))
-
-      if (isNewScene) {
-        appendFeedEntry({
-          turn,
-          kind: 'system',
-          speaker: 'Scene',
-          nodeId: node.id,
-          eventId: event.id,
-          text: event.name,
-        })
+      const event = stateAtStart.currentEvent
+      if (!event) {
+        return
       }
+      const node = getNode(stateAtStart.currentNodeId)
+      const sceneNpc = event.npcTemplate ? stateAtStart.storyNpcs.find((npc) => npc.id === event.npcTemplate?.id) : undefined
+      const effects = choice.effects ?? []
 
-      const narratorEntryId = appendFeedEntry({
+      appendFeedEntry({
         turn,
-        kind: 'narration',
-        speaker: 'Narrator',
+        kind: 'action',
+        speaker: 'Selected option',
         nodeId: node.id,
         eventId: event.id,
-        text: '',
-        streaming: true,
+        text: choice.optionSummary ? `${choice.label}\n${choice.optionSummary}` : choice.label,
+      })
+      appendDebugEntry({
+        turn,
+        label: 'Selected choice',
+        text: `${choice.label}\nMode: ${choice.mode}\nTone: ${choice.tone}\nWriter intent: ${choice.writerIntent ?? 'None provided.'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
       })
 
-      await streamFeedEntry(narratorEntryId, buildNarratorPrompt(turnState, event))
-      updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, streaming: false }))
+      const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
+      appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
+      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true })
+      const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
+      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, streaming: false }))
 
-      const visibleCharacterTurns: string[] = []
-      const updatedCharacters: Character[] = []
-
-      for (const character of stateAtStart.characters) {
-        if (character.completed || character.health <= 0) {
-          updatedCharacters.push(character)
-          continue
-        }
-
-        const debugEntryId = appendDebugEntry({ turn, characterName: character.name, text: '', streaming: true })
-        const privateExchange = await streamLocalText(llmSettings, buildPrivateNarratorPrompt(character, turnState, event), (chunk) => {
-          updateDebugEntry(debugEntryId, (entry) => ({ ...entry, text: entry.text + chunk }))
-        })
-        updateDebugEntry(debugEntryId, (entry) => ({ ...entry, streaming: false }))
-
-        const characterEntryId = appendFeedEntry({
-          turn,
-          kind: 'dialogue',
-          speaker: character.name,
-          nodeId: node.id,
-          eventId: event.id,
-          text: '',
-          streaming: true,
-        })
-
-        const visibleTurn = await streamFeedEntry(characterEntryId, buildCharacterPrompt(character, turnState, event, privateExchange, visibleCharacterTurns))
-        updateFeedEntry(characterEntryId, (entry) => ({ ...entry, streaming: false }))
-        visibleCharacterTurns.push(`${character.name}: ${visibleTurn}`)
-        updatedCharacters.push({ ...character, memory: [...character.memory, visibleTurn].slice(-8) })
-      }
-
-      let updatedStoryNpcs = storyNpcs
-
+      let updatedStoryNpcs = stateAtStart.storyNpcs
       if (sceneNpc) {
-        const npcEntryId = appendFeedEntry({
-          turn,
-          kind: 'dialogue',
-          speaker: sceneNpc.name,
-          nodeId: node.id,
-          eventId: event.id,
-          text: '',
-          streaming: true,
-        })
-        const npcTurn = await streamFeedEntry(npcEntryId, buildNpcPrompt(sceneNpc, turnState, event, visibleCharacterTurns))
+        const npcPrompt = buildNpcResponsePrompt(stateAtStart, event, sceneNpc, choice, resolutionText)
+        appendDebugEntry({ turn, label: 'NPC prompt', text: npcPrompt })
+        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true })
+        const npcTurn = await streamFeedEntry(npcEntryId, npcPrompt)
         updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
-        visibleCharacterTurns.push(`${sceneNpc.name}: ${npcTurn}`)
-        updatedStoryNpcs = storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcTurn].slice(-8) } : npc))
+        updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcTurn].slice(-8) } : npc))
       }
 
-      const resolutionDebugEntryId = appendDebugEntry({ turn, characterName: 'Narrator', text: '', streaming: true })
-      const validationText = await streamLocalText(llmSettings, buildSceneResolutionPrompt(turnState, event, visibleCharacterTurns), (chunk) => {
-        updateDebugEntry(resolutionDebugEntryId, (entry) => ({ ...entry, text: entry.text + chunk }))
-      })
-      updateDebugEntry(resolutionDebugEntryId, (entry) => ({ ...entry, streaming: false }))
-
-      const sceneResolved = sceneAge >= 2 && parseSceneResolved(validationText)
-      const nextNodeId = sceneResolved ? chooseNextNode(stateAtStart, event, visibleCharacterTurns.join('\n')) : stateAtStart.currentNodeId
+      const appliedState = applyStoryEffects({ ...stateAtStart, storyNpcs: updatedStoryNpcs }, effects)
       const nextTurn = turn + 1
-      const reachedGoal = sceneResolved && nextNodeId === storySchema.goalNodeId && stateAtStart.currentNodeId === storySchema.goalNodeId
-      const outOfTime = nextTurn > storySchema.maxTurns && !reachedGoal
-      const outcome: CampaignState['outcome'] = reachedGoal ? 'won' : outOfTime ? 'lost' : 'running'
-      const nextExploredNodeIds = stateAtStart.exploredNodeIds.includes(nextNodeId) ? stateAtStart.exploredNodeIds : [...stateAtStart.exploredNodeIds, nextNodeId]
+      const outOfTime = nextTurn > storySchema.maxTurns && appliedState.outcome === 'running'
+      const outcome: CampaignState['outcome'] = outOfTime ? 'lost' : appliedState.outcome
 
-      if (sceneResolved) {
-        setSelectedNodeId(nextNodeId)
+      setSelectedNodeId(appliedState.currentNodeId)
+      if (!appliedState.player.inventory.some((item) => item.id === selectedItemId)) {
+        setSelectedItemId(appliedState.player.inventory[0]?.id)
       }
 
       setCampaign((state) => ({
-        ...state,
+        ...appliedState,
+        feed: state.feed,
+        debugFeed: state.debugFeed,
+        storyNpcs: appliedState.storyNpcs.map((npc) => ({ ...npc, currentNodeId: appliedState.currentNodeId })),
         turn: nextTurn,
-        characters: updatedCharacters.map((character) => ({ ...character, currentNodeId: nextNodeId, completed: outcome === 'won' })),
-        storyNpcs: updatedStoryNpcs.map((npc) => ({ ...npc, currentNodeId: nextNodeId })),
-        currentNodeId: nextNodeId,
-        currentEvent: sceneResolved || outcome !== 'running' ? undefined : event,
-        currentEventStartedTurn: sceneResolved || outcome !== 'running' ? undefined : sceneStartedTurn,
-        exploredNodeIds: nextExploredNodeIds,
+        currentEvent: undefined,
+        sceneOpened: false,
         outcome,
       }))
 
+      appendDebugEntry({ turn, label: 'Applied effects', text: effects.map(describeEffect).join('\n') || 'No mechanical effects.' })
+
       if (outcome !== 'running') {
+        const outcomeText = outcome === 'won' ? 'The proof has been delivered. The dead have names again, and the hall has to hear them.' : 'Tamsin can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.'
         appendFeedEntry({
           turn: nextTurn,
           kind: 'narration',
           speaker: 'Narrator',
-          nodeId: nextNodeId,
-          text: outcome === 'won' ? 'The lich is ended, the dead are still, and the road back to the king opens beneath a pale morning.' : 'The adventure breaks before its promise is kept. Somewhere ahead, the lich keeps raising the dead until they outnumber the living.',
+          nodeId: appliedState.currentNodeId,
+          text: '',
+          generatedText: outcomeText,
+          revealedLineCount: 0,
+          revealMode: 'line-gated',
         })
       }
     } catch (error) {
@@ -1523,7 +2843,8 @@ function App() {
     setLlmError(undefined)
     setCodexSection('people')
     setSelectedNodeId(initialState.currentNodeId)
-    setSelectedPersonId(initialCharacters[0].id)
+    setSelectedPersonId(initialState.player.id)
+    setSelectedItemId(initialState.player.inventory[0]?.id)
     setCampaign(initialState)
   }
 
@@ -1544,24 +2865,26 @@ function App() {
     setCurrentView('codex')
   }
 
+  const openCodexItem = (itemId: string) => {
+    setCodexSection('inventory')
+    setSelectedItemId(itemId)
+    setCurrentView('codex')
+  }
+
   const openCodex = () => {
     setCurrentView('codex')
   }
 
   return (
-    <main className="min-h-screen bg-muted/30">
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[360px_minmax(0,1fr)] lg:px-8">
-        <aside className="flex flex-col gap-5">
+    <main className="min-h-svh bg-muted/30 lg:h-svh lg:overflow-hidden">
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:h-full lg:min-h-0 lg:grid-cols-[360px_minmax(0,1fr)] lg:px-8">
+        <aside className="flex min-h-0 flex-col gap-5 lg:overflow-y-auto">
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">{storySchema.title}</CardTitle>
+              <CardDescription className="font-serif">Playable story framework sample</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <Button type="button" size="lg" onClick={advanceOneTurn} disabled={isAdvancing || campaign.outcome !== 'running'} className="w-full">
-                <PlayIcon data-icon="inline-start" />
-                {isAdvancing ? 'Generating…' : 'Next'}
-              </Button>
-              <Separator />
               <div className="grid grid-cols-2 gap-2">
                 {([
                   ['story', 'Story'],
@@ -1577,12 +2900,12 @@ function App() {
             </CardContent>
           </Card>
 
-          <CharactersPanel characters={campaign.characters} npcs={campaign.storyNpcs} />
+          <PlayerPanel state={campaign} />
         </aside>
 
-        <section className="flex min-h-0 flex-col gap-5">
+        <section className="flex min-h-0 flex-col gap-5 lg:h-full lg:overflow-hidden">
           {currentView === 'story' ? (
-            <>
+            <div className="flex min-h-0 flex-1 flex-col gap-5">
               {llmError ? (
                 <Alert variant="destructive">
                   <AlertCircleIcon />
@@ -1591,8 +2914,8 @@ function App() {
                 </Alert>
               ) : null}
 
-              <Card className="min-h-[720px] bg-transparent ring-0 shadow-none">
-                <CardHeader>
+              <Card className="min-h-0 flex-1 bg-transparent ring-0 shadow-none">
+                <CardHeader className="shrink-0">
                   <div className="flex items-start gap-3">
                     <StoryIcon id={currentNode.iconAssetId} label={currentNode.publicName} />
                     <div>
@@ -1601,19 +2924,23 @@ function App() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[76vh] min-h-[620px]">
+                <CardContent className="min-h-0 flex-1">
+                  <ScrollArea className="h-[min(64svh,640px)] min-h-0 lg:h-full">
                     <div className="pr-3">
-                      <StoryTranscript state={campaign} onOpenCodexNode={openCodexNode} onOpenCodexPerson={openCodexPerson} onOpenCodex={openCodex} />
+                      <StoryTranscript state={campaign} onOpenCodexNode={openCodexNode} onOpenCodexPerson={openCodexPerson} onOpenCodexItem={openCodexItem} onOpenCodex={openCodex} />
                       <div ref={scrollAnchorRef} />
                     </div>
                   </ScrollArea>
                 </CardContent>
               </Card>
-            </>
+
+              <div className="shrink-0 lg:max-h-[34svh] lg:overflow-y-auto">
+                <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
+              </div>
+            </div>
           ) : null}
 
-          {currentView === 'map' ? <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onOpenCodex={openCodexNode} /> : null}
+          {currentView === 'map' ? <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onTravelNode={travelToNode} onOpenCodex={openCodexNode} /> : null}
 
           {currentView === 'codex' ? (
             <CodexPanel
@@ -1621,19 +2948,21 @@ function App() {
               section={codexSection}
               selectedNodeId={selectedNodeId}
               selectedPersonId={selectedPersonId}
+              selectedItemId={selectedItemId}
               onSelectSection={setCodexSection}
               onSelectNode={setSelectedNodeId}
               onSelectPerson={setSelectedPersonId}
+              onSelectItem={setSelectedItemId}
               onOpenMap={openMapNode}
             />
           ) : null}
 
           {currentView === 'settings' ? (
-            <>
+            <div className="min-h-0 overflow-y-auto">
               <Card>
                 <CardHeader>
                   <CardTitle>Settings</CardTitle>
-                  <CardDescription className="font-serif">Local generation and debug controls.</CardDescription>
+                  <CardDescription className="font-serif">Local generation and trace controls.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex max-w-xl flex-col gap-3">
                   <label className="flex flex-col gap-1.5 text-sm font-medium">
@@ -1657,7 +2986,7 @@ function App() {
               </Card>
 
               {debugMode ? <DebugPanel entries={campaign.debugFeed} /> : null}
-            </>
+            </div>
           ) : null}
         </section>
       </div>
