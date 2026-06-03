@@ -1918,23 +1918,6 @@ function getNodeTypeColor(nodeType: StoryNodeType) {
   return colors[nodeType]
 }
 
-function getNodeTypeDescription(nodeType: StoryNodeType) {
-  const descriptions: Record<StoryNodeType, string> = {
-    origin: 'The known starting point of this route.',
-    settlement: 'A lived-in place where social pressure, testimony, shelter, or supplies may matter.',
-    road: 'A route node where travel, interception, delay, or discovery is likely.',
-    wilds: 'An unsettled place where weather, terrain, animals, or isolation may matter.',
-    watch: 'A vantage point where routes, warnings, records, or old advice may surface.',
-    crypt: 'A buried or death-touched place where ritual pressure and danger are likely.',
-    court: 'A place of authority, witness, judgment, or public consequence.',
-    ritual: 'A place where symbols, rules, names, or sequence may matter.',
-    hazard: 'A dangerous route where harm, obstruction, or ambush may happen.',
-    mystery: 'An unknown place whose exact role is not yet clear.',
-  }
-
-  return descriptions[nodeType]
-}
-
 function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
   const explored = new Set(state.exploredNodeIds)
   const adjacentTargets = getAdjacentTravelTargets(state)
@@ -1949,7 +1932,7 @@ function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
     return {
       id: node.id,
       label: isExplored || isCurrent ? node.publicName : 'Unexplored',
-      description: isExplored ? node.description : getNodeTypeDescription(node.nodeType),
+      description: isExplored ? node.description : 'Who knows what is here',
       nodeType: node.nodeType,
       position: normalizeMapPosition(node),
       explored: isExplored,
@@ -2151,15 +2134,12 @@ function MiniatureMapStage() {
     <>
       <PerspectiveCamera
         makeDefault
-        position={[6.8, 7.4, 7.2]}
+        position={[0, 8, 8]}
+        rotation={[-Math.PI / 4, 0, 0]}
         fov={34}
         near={0.1}
         far={60}
-        onUpdate={(camera) => {
-          camera.lookAt(0, 0, 0)
-        }}
       />
-      <fog attach="fog" args={['#ffffff', 10, 22]} />
       <Environment preset="studio" background={false} environmentIntensity={0.72} />
       <mesh position={[0, -0.2, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[17, 17]} />
@@ -2187,7 +2167,7 @@ function ThreeMapScene({
         {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
         {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
       </Stage>
-      <OrbitControls makeDefault enableRotate={false} enablePan enableZoom screenSpacePanning minDistance={6} maxDistance={18} zoomSpeed={0.75} panSpeed={0.7} />
+      <OrbitControls makeDefault target={[0, 0, 0]} enableRotate={false} enablePan enableZoom screenSpacePanning minDistance={6} maxDistance={18} zoomSpeed={0.75} panSpeed={0.7} />
       <EffectComposer multisampling={4} enableNormalPass={false} resolutionScale={1}>
         <DepthOfField focusDistance={0.035} focalLength={0.012} bokehScale={0.28} height={720} />
       </EffectComposer>
@@ -2224,7 +2204,7 @@ function MapGraphView({
         <h2 className="sr-only">Route atlas</h2>
         <p className="sr-only">Trace known roads and select a marked place for its details.</p>
         <div className="relative h-[min(72svh,760px)] min-h-[420px] overflow-hidden border border-foreground bg-background lg:h-full" aria-label="Interactive route atlas">
-          <Canvas shadows dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [6.8, 7.4, 7.2], fov: 34, near: 0.1, far: 60 }}>
+          <Canvas shadows dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 8, 8], fov: 34, near: 0.1, far: 60 }}>
             <color attach="background" args={['#ffffff']} />
             <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />
           </Canvas>
