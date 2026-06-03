@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { ContactShadows, Environment, Html, PerspectiveCamera } from '@react-three/drei'
+import { Environment, Html, PerspectiveCamera, Stage } from '@react-three/drei'
+import { DepthOfField, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -2159,26 +2160,11 @@ function MiniatureMapStage() {
         }}
       />
       <fog attach="fog" args={['#ffffff', 10, 22]} />
-      <Environment preset="studio" environmentIntensity={0.55} />
-      <ambientLight intensity={0.34} />
-      <hemisphereLight args={['#ffffff', '#d8d8d8', 0.72]} />
-      <directionalLight
-        position={[-3.5, 8, 5.5]}
-        intensity={2.25}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={10}
-        shadow-camera-bottom={-10}
-      />
+      <Environment preset="studio" background={false} environmentIntensity={0.72} />
       <mesh position={[0, -0.2, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[17, 17]} />
-        <meshStandardMaterial color="#f7f7f7" roughness={0.92} metalness={0} />
+        <meshStandardMaterial color="#f7f7f7" roughness={0.78} metalness={0.02} />
       </mesh>
-      <gridHelper args={[16, 16, '#111111', '#dddddd']} position={[0, -0.18, 0]} />
-      <ContactShadows position={[0, -0.17, 0]} opacity={0.32} scale={14} blur={2.2} far={7} resolution={512} />
     </>
   )
 }
@@ -2197,8 +2183,13 @@ function ThreeMapScene({
   return (
     <>
       <MiniatureMapStage />
-      {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
-      {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
+      <Stage adjustCamera={false} preset="soft" intensity={0.8} environment={null} shadows={{ type: 'contact', opacity: 0.34, blur: 2.4, scale: 14 }}>
+        {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
+        {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
+      </Stage>
+      <EffectComposer multisampling={0} enableNormalPass={false}>
+        <DepthOfField focusDistance={0.045} focalLength={0.028} bokehScale={1.45} height={360} />
+      </EffectComposer>
     </>
   )
 }
