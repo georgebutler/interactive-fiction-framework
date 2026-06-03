@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { Environment, Html, PerspectiveCamera, Stage } from '@react-three/drei'
+import { Environment, Html, OrbitControls, PerspectiveCamera, Stage } from '@react-three/drei'
 import { DepthOfField, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
@@ -2187,8 +2187,9 @@ function ThreeMapScene({
         {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
         {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
       </Stage>
-      <EffectComposer multisampling={0} enableNormalPass={false}>
-        <DepthOfField focusDistance={0.045} focalLength={0.028} bokehScale={1.45} height={360} />
+      <OrbitControls makeDefault enableRotate={false} enablePan enableZoom screenSpacePanning minDistance={6} maxDistance={18} zoomSpeed={0.75} panSpeed={0.7} />
+      <EffectComposer multisampling={4} enableNormalPass={false} resolutionScale={1}>
+        <DepthOfField focusDistance={0.035} focalLength={0.012} bokehScale={0.28} height={720} />
       </EffectComposer>
     </>
   )
@@ -2223,7 +2224,7 @@ function MapGraphView({
         <h2 className="sr-only">Route atlas</h2>
         <p className="sr-only">Trace known roads and select a marked place for its details.</p>
         <div className="relative h-[min(72svh,760px)] min-h-[420px] overflow-hidden border border-foreground bg-background lg:h-full" aria-label="Interactive route atlas">
-          <Canvas shadows dpr={[1, 2]} camera={{ position: [6.8, 7.4, 7.2], fov: 34, near: 0.1, far: 60 }}>
+          <Canvas shadows dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [6.8, 7.4, 7.2], fov: 34, near: 0.1, far: 60 }}>
             <color attach="background" args={['#ffffff']} />
             <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />
           </Canvas>
