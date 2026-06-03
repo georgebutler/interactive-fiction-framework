@@ -1,8 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { Canvas, type ThreeEvent } from '@react-three/fiber'
-import { Environment, Html, OrbitControls, PerspectiveCamera, Stage } from '@react-three/drei'
-import { DepthOfField, EffectComposer } from '@react-three/postprocessing'
-import * as THREE from 'three'
+import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
+import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
 import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -215,13 +213,17 @@ type LlmSettings = {
   model: string
 }
 
-type AppView = 'story' | 'map' | 'codex' | 'settings'
-type CodexSection = 'people' | 'places' | 'inventory'
+type AppView = 'story' | 'map' | 'codex' | 'character' | 'settings'
+type CodexSection = 'story' | 'people' | 'places'
 
 type CodexReference = {
   term: string
   type: 'place' | 'person' | 'item' | 'term'
   targetId?: string
+}
+
+const codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>> = {
+  Redvale: { type: 'place', targetId: 'ash-farms' },
 }
 
 const storyIconAssets: Record<StoryIconId, string> = {
@@ -1344,6 +1346,10 @@ function getNearestUnexploredAdjacentTargets(state: CampaignState) {
 }
 
 function getTravelDisabledReason(state: CampaignState, nodeId: string) {
+  if (!state.sceneOpened || !state.currentEvent) {
+    return 'Begin the current scene before leaving this place.'
+  }
+
   if (nodeId === state.currentNodeId) {
     return 'Tamsin is already here.'
   }
@@ -1516,6 +1522,13 @@ function getCodexReferences(state: CampaignState) {
   state.player.inventory.filter((item) => item.visible).forEach((item) => addReference({ term: item.name, type: 'item', targetId: item.id }))
   state.storyNpcs.forEach((npc) => addReference({ term: npc.name, type: 'person', targetId: npc.id }))
   storySchema.codexTerms.forEach((term) => {
+    const explicitTarget = codexTermTargets[term]
+
+    if (explicitTarget) {
+      addReference({ term, type: explicitTarget.type, targetId: explicitTarget.targetId })
+      return
+    }
+
     const matchingPlace = storySchema.nodes.find((node) => node.publicName.toLowerCase() === term.toLowerCase())
     const matchingPlaceIsKnown = matchingPlace ? state.exploredNodeIds.includes(matchingPlace.id) : false
     const matchingItem = state.player.inventory.find((item) => item.name.toLowerCase() === term.toLowerCase())
@@ -1901,23 +1914,6 @@ function normalizeMapPosition(node: StoryNode): [number, number, number] {
   return [(position.x - 300) / 38, 0, (300 - position.y) / 38]
 }
 
-function getNodeTypeColor(nodeType: StoryNodeType) {
-  const colors: Record<StoryNodeType, string> = {
-    origin: '#111111',
-    settlement: '#111111',
-    road: '#555555',
-    wilds: '#111111',
-    watch: '#111111',
-    crypt: '#111111',
-    court: '#111111',
-    ritual: '#111111',
-    hazard: '#111111',
-    mystery: '#777777',
-  }
-
-  return colors[nodeType]
-}
-
 function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
   const explored = new Set(state.exploredNodeIds)
   const adjacentTargets = getAdjacentTravelTargets(state)
@@ -1980,18 +1976,17 @@ function getMapRenderModel(state: CampaignState, selectedNodeId: string) {
 }
 
 function ThreeMapEdge({ edge }: { edge: MapRenderEdge }) {
-  const from = new THREE.Vector3(...edge.from)
-  const to = new THREE.Vector3(...edge.to)
-  const midpoint = from.clone().add(to).multiplyScalar(0.5)
-  const delta = to.clone().sub(from)
-  const length = delta.length()
-  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.clone().normalize())
-
   return (
-    <mesh position={midpoint} quaternion={quaternion} castShadow receiveShadow>
-      <cylinderGeometry args={[edge.blocked ? 0.035 : 0.025, edge.blocked ? 0.035 : 0.025, length, 8]} />
-      <meshStandardMaterial color={edge.blocked ? '#111111' : edge.hidden ? '#999999' : '#111111'} roughness={0.82} />
-    </mesh>
+    <Line
+      points={[edge.from, edge.to]}
+      color="#111111"
+      lineWidth={edge.blocked ? 2.2 : 1.55}
+      dashed={edge.hidden}
+      dashScale={18}
+      dashSize={0.45}
+      gapSize={0.28}
+      depthWrite={false}
+    />
   )
 }
 
@@ -2006,14 +2001,14 @@ function ThreeMapNode({
   onTravelNode: (nodeId: string) => void
   onOpenCodex: (nodeId: string) => void
 }) {
-  const color = node.explored || node.current ? getNodeTypeColor(node.nodeType) : '#777777'
+  const color = node.explored || node.current ? '#111111' : '#777777'
   const disabledReasonId = `${node.id}-map-travel-reason`
 
   return (
     <group position={node.position} onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelectNode(node.id) }}>
       {node.current ? (
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.54, 0.035, 12, 40]} />
+          <torusGeometry args={[0.54, 0.07, 12, 40]} />
           <meshBasicMaterial color="#111111" />
         </mesh>
       ) : null}
@@ -2023,25 +2018,20 @@ function ThreeMapNode({
           <meshBasicMaterial color="#111111" />
         </mesh>
       ) : null}
-      {node.nodeType === 'watch' ? <CylinderGeometryNode color={color} /> : null}
-      {node.nodeType === 'crypt' || node.nodeType === 'ritual' ? <OctahedronGeometryNode color={color} /> : null}
-      {node.nodeType === 'hazard' ? <ConeGeometryNode color={color} /> : null}
-      {node.nodeType === 'road' || node.nodeType === 'origin' ? <BoxGeometryNode color={color} /> : null}
-      {node.nodeType === 'settlement' || node.nodeType === 'court' || node.nodeType === 'wilds' || node.nodeType === 'mystery' ? <SphereGeometryNode color={color} /> : null}
-      <Html position={[0, 0.86, 0]} center style={{ pointerEvents: 'none', width: 'max-content' }}>
-        <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-foreground text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
-          {node.label}
-        </span>
-      </Html>
+      <SphereGeometryNode color={color} />
+      {!node.selected ? (
+        <Html position={[0, 0.86, 0]} center style={{ pointerEvents: 'none', width: 'max-content' }}>
+          <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-foreground text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
+            {node.label}
+          </span>
+        </Html>
+      ) : null}
       {node.selected ? (
         <Html position={[0, 1.48, 0]} center style={{ pointerEvents: 'auto', width: 'max-content' }}>
           <div role="dialog" aria-label={`${node.label} details`} className="w-56 max-w-[70vw] border border-foreground bg-background p-2.5 text-foreground shadow-none">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-sans text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Location</p>
-                <h3 className="mt-1 truncate font-serif text-base leading-tight">{node.label}</h3>
-              </div>
-              <MapNodeTypeBadge nodeType={node.nodeType} />
+              <h3 className="min-w-0 truncate font-serif text-base leading-tight">{node.label}</h3>
+              {node.explored || node.current ? <MapNodeTypeBadge nodeType={node.nodeType} /> : null}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {node.current ? <Badge variant="secondary">current location</Badge> : null}
@@ -2049,20 +2039,21 @@ function ThreeMapNode({
             </div>
             <p className="mt-2 font-serif text-xs leading-5 text-muted-foreground">{node.description}</p>
             <div className="mt-2 flex flex-col gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={Boolean(node.travelDisabledReason)}
-                title={node.travelDisabledReason}
-                aria-describedby={node.travelDisabledReason ? disabledReasonId : undefined}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onTravelNode(node.id)
-                }}
-              >
-                {node.explored ? 'Travel here' : 'Explore this route'}
-              </Button>
-              {node.travelDisabledReason && !node.current ? <p id={disabledReasonId} className="font-serif text-xs leading-5 text-muted-foreground">{node.travelDisabledReason}</p> : null}
+              <span title={node.travelDisabledReason} className="inline-flex">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={Boolean(node.travelDisabledReason)}
+                  aria-describedby={node.travelDisabledReason ? disabledReasonId : undefined}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onTravelNode(node.id)
+                  }}
+                >
+                  Travel
+                </Button>
+              </span>
+              {node.travelDisabledReason ? <span id={disabledReasonId} className="sr-only">{node.travelDisabledReason}</span> : null}
               {node.explored ? (
                 <Button
                   type="button"
@@ -2086,66 +2077,31 @@ function ThreeMapNode({
 
 function SphereGeometryNode({ color }: { color: string }) {
   return (
-    <mesh castShadow receiveShadow>
+    <mesh>
       <sphereGeometry args={[0.34, 24, 16]} />
-      <meshStandardMaterial color={color} roughness={0.78} />
+      <meshBasicMaterial color={color} />
     </mesh>
   )
 }
 
-function BoxGeometryNode({ color }: { color: string }) {
-  return (
-    <mesh castShadow receiveShadow>
-      <boxGeometry args={[0.72, 0.34, 0.3]} />
-      <meshStandardMaterial color={color} roughness={0.8} />
-    </mesh>
-  )
-}
+function MapPerspectiveCamera() {
+  const size = useThree((state) => state.size)
+  const aspect = size.width / Math.max(size.height, 1)
 
-function ConeGeometryNode({ color }: { color: string }) {
   return (
-    <mesh rotation={[0, 0, Math.PI]} castShadow receiveShadow>
-      <coneGeometry args={[0.38, 0.72, 5]} />
-      <meshStandardMaterial color={color} roughness={0.76} />
-    </mesh>
-  )
-}
-
-function CylinderGeometryNode({ color }: { color: string }) {
-  return (
-    <mesh castShadow receiveShadow>
-      <cylinderGeometry args={[0.26, 0.34, 0.78, 10]} />
-      <meshStandardMaterial color={color} roughness={0.76} />
-    </mesh>
-  )
-}
-
-function OctahedronGeometryNode({ color }: { color: string }) {
-  return (
-    <mesh castShadow receiveShadow>
-      <octahedronGeometry args={[0.43, 0]} />
-      <meshStandardMaterial color={color} roughness={0.72} />
-    </mesh>
-  )
-}
-
-function MiniatureMapStage() {
-  return (
-    <>
-      <PerspectiveCamera
-        makeDefault
-        position={[0, 8, 8]}
-        rotation={[-Math.PI / 4, 0, 0]}
-        fov={34}
-        near={0.1}
-        far={60}
-      />
-      <Environment preset="studio" background={false} environmentIntensity={0.72} />
-      <mesh position={[0, -0.2, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[17, 17]} />
-        <meshStandardMaterial color="#f7f7f7" roughness={0.78} metalness={0.02} />
-      </mesh>
-    </>
+    <PerspectiveCamera
+      makeDefault
+      position={[0, 8, 8]}
+      rotation={[-Math.PI / 4, 0, 0]}
+      fov={30}
+      aspect={aspect}
+      near={0.1}
+      far={60}
+      onUpdate={(camera) => {
+        camera.aspect = aspect
+        camera.updateProjectionMatrix()
+      }}
+    />
   )
 }
 
@@ -2162,15 +2118,12 @@ function ThreeMapScene({
 }) {
   return (
     <>
-      <MiniatureMapStage />
-      <Stage adjustCamera={false} preset="soft" intensity={0.8} environment={null} shadows={{ type: 'contact', opacity: 0.34, blur: 2.4, scale: 14 }}>
+      <MapPerspectiveCamera />
+      <group>
         {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
         {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />)}
-      </Stage>
+      </group>
       <OrbitControls makeDefault target={[0, 0, 0]} enableRotate={false} enablePan enableZoom screenSpacePanning minDistance={6} maxDistance={18} zoomSpeed={0.75} panSpeed={0.7} />
-      <EffectComposer multisampling={4} enableNormalPass={false} resolutionScale={1}>
-        <DepthOfField focusDistance={0.035} focalLength={0.012} bokehScale={0.28} height={720} />
-      </EffectComposer>
     </>
   )
 }
@@ -2204,7 +2157,7 @@ function MapGraphView({
         <h2 className="sr-only">Route atlas</h2>
         <p className="sr-only">Trace known roads and select a marked place for its details.</p>
         <div className="relative h-[min(72svh,760px)] min-h-[420px] overflow-hidden border border-foreground bg-background lg:h-full" aria-label="Interactive route atlas">
-          <Canvas shadows dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 8, 8], fov: 34, near: 0.1, far: 60 }}>
+          <Canvas dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 8, 8], fov: 30, near: 0.1, far: 60 }}>
             <color attach="background" args={['#ffffff']} />
             <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />
           </Canvas>
@@ -2252,11 +2205,6 @@ function PlayerPanel({ state, currentObjective }: { state: CampaignState; curren
           <ul className="mt-2 list-inside list-disc font-serif text-sm leading-6 text-muted-foreground">
             {visibleInventory.map((item) => <li key={item.id} title={item.description}>{item.name}</li>)}
           </ul>
-        </section>
-
-        <section className="border-t border-foreground pt-3">
-          <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Story so far</h3>
-          <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{player.memory[player.memory.length - 1]}</p>
         </section>
 
         {state.storyNpcs.length > 0 ? (
@@ -2396,72 +2344,65 @@ function CodexPanel({
   section,
   selectedNodeId,
   selectedPersonId,
-  selectedItemId,
   onSelectSection,
   onSelectNode,
   onSelectPerson,
-  onSelectItem,
   onOpenMap,
 }: {
   state: CampaignState
   section: CodexSection
   selectedNodeId: string
   selectedPersonId: string
-  selectedItemId?: string
   onSelectSection: (section: CodexSection) => void
   onSelectNode: (nodeId: string) => void
   onSelectPerson: (personId: string) => void
-  onSelectItem: (itemId: string) => void
   onOpenMap: (nodeId: string) => void
 }) {
   const exploredNodes = state.exploredNodeIds.map(getNode)
-  const selectedNode = exploredNodes.find((node) => node.id === selectedNodeId) ?? exploredNodes[0]
+  const selectedNodeFromAll = getNode(selectedNodeId)
+  const selectedNode = exploredNodes.find((node) => node.id === selectedNodeId) ?? selectedNodeFromAll ?? exploredNodes[0]
+  const visiblePlaceNodes = exploredNodes.some((node) => node.id === selectedNode.id) ? exploredNodes : [...exploredNodes, selectedNode]
   const selectedNpc = state.storyNpcs.find((npc) => npc.id === selectedPersonId)
-  const selectedItem = state.player.inventory.find((item) => item.id === selectedItemId) ?? state.player.inventory[0]
+  const storyEntries = [
+    ...state.player.memory.map((memory, index) => ({ id: `player-${index}`, title: state.player.name, text: memory })),
+    ...state.storyNpcs.flatMap((npc) => npc.memory.map((memory, index) => ({ id: `${npc.id}-${index}`, title: npc.name, text: memory }))),
+  ]
+
   return (
     <Card className="iff-chrome-panel min-h-0 lg:h-full">
       <CardHeader className="shrink-0">
         <CardTitle className="text-2xl">Journal</CardTitle>
-        <CardDescription className="font-serif">People, places, and keepsakes Tamsin has learned to trust.</CardDescription>
+        <CardDescription className="font-serif">Story, people, and places Tamsin has learned to trust.</CardDescription>
       </CardHeader>
       <CardContent className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 border border-foreground bg-background p-4 lg:max-h-none">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant={section === 'story' ? 'secondary' : 'outline'} onClick={() => onSelectSection('story')}>
+              Story
+            </Button>
             <Button type="button" variant={section === 'people' ? 'secondary' : 'outline'} onClick={() => onSelectSection('people')}>
               People
             </Button>
             <Button type="button" variant={section === 'places' ? 'secondary' : 'outline'} onClick={() => onSelectSection('places')}>
               Places
             </Button>
-            <Button type="button" variant={section === 'inventory' ? 'secondary' : 'outline'} onClick={() => onSelectSection('inventory')}>
-              Items
-            </Button>
           </div>
           <Separator />
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {section === 'people' ? (
               <>
-                <Button type="button" variant={selectedPersonId === state.player.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectPerson(state.player.id)}>
-                  {state.player.name}
-                </Button>
                 {state.storyNpcs.map((npc) => (
                   <Button key={npc.id} type="button" variant={selectedPersonId === npc.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectPerson(npc.id)}>
                     {npc.name}
                   </Button>
                 ))}
+                {state.storyNpcs.length === 0 ? <p className="font-serif text-sm leading-6 text-muted-foreground">No other people are known yet.</p> : null}
               </>
             ) : null}
             {section === 'places'
-              ? exploredNodes.map((node) => (
+              ? visiblePlaceNodes.map((node) => (
                   <Button key={node.id} type="button" variant={selectedNode.id === node.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectNode(node.id)}>
                     {node.publicName}
-                  </Button>
-                ))
-              : null}
-            {section === 'inventory'
-              ? state.player.inventory.filter((item) => item.visible).map((item) => (
-                  <Button key={item.id} type="button" variant={selectedItem?.id === item.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectItem(item.id)}>
-                    {item.name}
                   </Button>
                 ))
               : null}
@@ -2469,42 +2410,19 @@ function CodexPanel({
         </aside>
 
         <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-4 overflow-y-auto border border-foreground bg-background p-5 lg:max-h-none">
-          {section === 'people' && selectedPersonId === state.player.id ? (
+          {section === 'story' ? (
             <div className="flex flex-col gap-4">
-              <div className="flex items-start gap-4">
-                <span className="inline-flex h-24 w-[4.5rem] items-center justify-center overflow-hidden border border-foreground bg-background">
-                  <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
-                </span>
-                <div>
-                  <h4 className="text-xl font-semibold">{state.player.name}</h4>
-                  <p className="text-sm text-muted-foreground">{state.player.role}</p>
-                  <Badge className="mt-2" variant="secondary">
-                    Health {state.player.health.current}/{state.player.health.max}
-                  </Badge>
-                </div>
-              </div>
-              <div className="font-serif text-sm leading-6 text-muted-foreground">
-                <p>{state.player.backstory.origin}</p>
-                <p className="mt-2">{state.player.backstory.wound}</p>
-                <p className="mt-2">{state.player.backstory.want}</p>
-              </div>
               <div>
-                <h5 className="text-sm font-medium">Strengths</h5>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {state.player.skillTags.map((skill) => (
-                    <Badge key={skill} variant="outline">
-                      {skill}
-                    </Badge>
-                  ))}
-                </div>
+                <h4 className="text-xl font-semibold">Story</h4>
+                <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">A plain account of what Tamsin and the people around her have learned so far.</p>
               </div>
-              <div>
-                <h5 className="text-sm font-medium">Story so far</h5>
-                <ul className="mt-2 flex flex-col gap-2 font-serif text-sm leading-6 text-muted-foreground">
-                  {state.player.memory.map((memory) => (
-                    <li key={memory}>{memory}</li>
-                  ))}
-                </ul>
+              <div className="flex flex-col gap-3">
+                {storyEntries.map((entry) => (
+                  <article key={entry.id} className="border-l border-foreground pl-3">
+                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{entry.title}</p>
+                    <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{entry.text}</p>
+                  </article>
+                ))}
               </div>
             </div>
           ) : null}
@@ -2516,16 +2434,10 @@ function CodexPanel({
                 <p className="text-sm text-muted-foreground">{selectedNpc.role}</p>
               </div>
               <p className="font-serif text-sm leading-6 text-muted-foreground">{selectedNpc.description}</p>
-              <div>
-                <h5 className="text-sm font-medium">Story so far</h5>
-                <ul className="mt-2 flex flex-col gap-2 font-serif text-sm leading-6 text-muted-foreground">
-                  {selectedNpc.memory.map((memory) => (
-                    <li key={memory}>{memory}</li>
-                  ))}
-                </ul>
-              </div>
             </div>
           ) : null}
+
+          {section === 'people' && !selectedNpc ? <p className="font-serif text-sm leading-6 text-muted-foreground">No person is selected.</p> : null}
 
           {section === 'places' ? (
             <div>
@@ -2547,18 +2459,94 @@ function CodexPanel({
             </div>
           ) : null}
 
-          {section === 'inventory' && selectedItem ? (
-            <div>
-              <h4 className="text-xl font-semibold">{selectedItem.name}</h4>
-              <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{selectedItem.description}</p>
-              {selectedItem.tags && selectedItem.tags.length > 0 ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {selectedItem.tags.map((tag) => <ItemTagBadge key={tag} tag={tag} />)}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
         </section>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CharacterPanel({
+  state,
+  selectedItemId,
+  onSelectItem,
+}: {
+  state: CampaignState
+  selectedItemId?: string
+  onSelectItem: (itemId: string) => void
+}) {
+  const visibleInventory = state.player.inventory.filter((item) => item.visible)
+  const selectedItem = visibleInventory.find((item) => item.id === selectedItemId) ?? visibleInventory[0]
+
+  return (
+    <Card className="iff-chrome-panel min-h-0 lg:h-full">
+      <CardHeader className="shrink-0">
+        <CardTitle className="text-2xl">Character</CardTitle>
+        <CardDescription className="font-serif">Tamsin, her condition, and what she carries.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-foreground bg-background p-5 lg:max-h-none">
+          <div className="flex items-start gap-4">
+            <span className="inline-flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border border-foreground bg-background">
+              <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
+            </span>
+            <div>
+              <h4 className="text-xl font-semibold">{state.player.name}</h4>
+              <p className="text-sm text-muted-foreground">{state.player.role}</p>
+              <Badge className="mt-2" variant="secondary">
+                Health {state.player.health.current}/{state.player.health.max}
+              </Badge>
+            </div>
+          </div>
+
+          <div className="font-serif text-sm leading-6 text-muted-foreground">
+            <p>{state.player.backstory.origin}</p>
+            <p className="mt-2">{state.player.backstory.wound}</p>
+            <p className="mt-2">{state.player.backstory.want}</p>
+          </div>
+
+          <div>
+            <h5 className="text-sm font-medium">Strengths</h5>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {state.player.skillTags.map((skill) => (
+                <Badge key={skill} variant="outline">
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h4 className="text-xl font-semibold">Inventory</h4>
+            {selectedItem ? (
+              <div className="mt-3 border-l border-foreground pl-3">
+                <h5 className="text-base font-semibold">{selectedItem.name}</h5>
+                <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{selectedItem.description}</p>
+                {selectedItem.tags && selectedItem.tags.length > 0 ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selectedItem.tags.map((tag) => <ItemTagBadge key={tag} tag={tag} />)}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">Tamsin is carrying no visible keepsakes right now.</p>
+            )}
+          </div>
+        </section>
+
+        <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 overflow-y-auto border border-foreground bg-background p-4 lg:max-h-none">
+          <h4 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Carried items</h4>
+          {visibleInventory.length > 0 ? (
+            visibleInventory.map((item) => (
+              <Button key={item.id} type="button" variant={selectedItem?.id === item.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectItem(item.id)}>
+                {item.name}
+              </Button>
+            ))
+          ) : (
+            <p className="font-serif text-sm leading-6 text-muted-foreground">No visible items.</p>
+          )}
+        </aside>
       </CardContent>
     </Card>
   )
@@ -2601,7 +2589,7 @@ function App() {
   const [debugMode, setDebugMode] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [currentView, setCurrentView] = useState<AppView>('story')
-  const [codexSection, setCodexSection] = useState<CodexSection>('people')
+  const [codexSection, setCodexSection] = useState<CodexSection>('story')
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.currentNodeId)
   const [selectedPersonId, setSelectedPersonId] = useState(initialState.player.id)
   const [selectedItemId, setSelectedItemId] = useState(initialState.player.inventory[0]?.id)
@@ -2749,7 +2737,9 @@ function App() {
     const destination = getNode(nodeId)
 
     if (disabledReason) {
-      appendFeedEntry({ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId: campaign.currentNodeId, text: disabledReason })
+      if (campaign.sceneOpened && campaign.currentEvent) {
+        appendFeedEntry({ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId: campaign.currentNodeId, text: disabledReason })
+      }
       return
     }
 
@@ -2872,7 +2862,7 @@ function App() {
 
   const resetCampaign = () => {
     setLlmError(undefined)
-    setCodexSection('people')
+    setCodexSection('story')
     setSelectedNodeId(initialState.currentNodeId)
     setSelectedPersonId(initialState.player.id)
     setSelectedItemId(initialState.player.inventory[0]?.id)
@@ -2891,18 +2881,23 @@ function App() {
   }
 
   const openCodexPerson = (personId: string) => {
+    if (personId === campaign.player.id) {
+      setCurrentView('character')
+      return
+    }
+
     setCodexSection('people')
     setSelectedPersonId(personId)
     setCurrentView('codex')
   }
 
   const openCodexItem = (itemId: string) => {
-    setCodexSection('inventory')
     setSelectedItemId(itemId)
-    setCurrentView('codex')
+    setCurrentView('character')
   }
 
   const openCodex = () => {
+    setCodexSection('story')
     setCurrentView('codex')
   }
 
@@ -2925,6 +2920,7 @@ function App() {
                     ['story', 'Story'],
                     ['map', 'Map'],
                     ['codex', 'Journal'],
+                    ['character', 'Character'],
                     ['settings', 'Options'],
                   ] as Array<[AppView, string]>).map(([view, label]) => {
                     const isCurrentView = currentView === view
@@ -2991,14 +2987,14 @@ function App() {
               section={codexSection}
               selectedNodeId={selectedNodeId}
               selectedPersonId={selectedPersonId}
-              selectedItemId={selectedItemId}
               onSelectSection={setCodexSection}
               onSelectNode={setSelectedNodeId}
               onSelectPerson={setSelectedPersonId}
-              onSelectItem={setSelectedItemId}
               onOpenMap={openMapNode}
             />
           ) : null}
+
+          {currentView === 'character' ? <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} /> : null}
 
           {currentView === 'settings' ? (
             <div className="min-h-0 overflow-y-auto">
