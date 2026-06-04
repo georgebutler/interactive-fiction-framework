@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { AlertCircleIcon, EyeIcon, MoonIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SearchIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1494,6 +1494,20 @@ function getChoiceModeColor(mode: ChoiceMode) {
   return colors[mode]
 }
 
+function ChoiceModeIcon({ mode }: { mode: ChoiceMode }) {
+  const icons = {
+    act: HandIcon,
+    say: MessageCircleIcon,
+    ask: SearchIcon,
+    'use-item': PackageIcon,
+    risk: TriangleAlertIcon,
+    wait: ClockIcon,
+  } satisfies Record<ChoiceMode, typeof HandIcon>
+  const Icon = icons[mode]
+
+  return <Icon className="size-3" aria-hidden="true" />
+}
+
 function choiceNeedsConfirmation(choice: StoryChoice, player: PlayableCharacter) {
   return (choice.effects ?? []).some((effect) => {
     if (effect.type === 'damage') {
@@ -2376,7 +2390,8 @@ function ChoicePanel({
             <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.consequenceHint ?? choice.optionSummary ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
               <span className="absolute bottom-0 left-0 top-0 w-[3px]" style={{ backgroundColor: modeColor }} />
               <span className="block">
-                <span className="mb-1.5 inline-flex items-center border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60" style={{ color: modeColor }}>
+                <span className="mb-1.5 inline-flex items-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60" style={{ color: modeColor }}>
+                  <ChoiceModeIcon mode={choice.mode} />
                   {getChoiceModeBadge(choice.mode)}
                 </span>
                 <span className="mb-1 block text-sm font-medium leading-snug text-[var(--color-text)]">{confirming ? `Confirm: ${choice.label}` : choice.label}</span>
@@ -3122,9 +3137,9 @@ function App() {
 
               <Tabs defaultValue="story" className="flex min-h-0 flex-1 flex-col gap-3">
                 <TabsList className="shrink-0">
-                  <TabsTrigger value="story">Story</TabsTrigger>
-                  <TabsTrigger value="map">Map</TabsTrigger>
-                  <TabsTrigger value="character">Character</TabsTrigger>
+                  <TabsTrigger value="story"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
+                  <TabsTrigger value="map"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
+                  <TabsTrigger value="character"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
                 </TabsList>
                 <TabsContent value="story" className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
