@@ -230,7 +230,7 @@ type CodexReference = {
 }
 
 const codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>> = {
-  Redvale: { type: 'place', targetId: 'ash-farms' },
+  Czerwonbród: { type: 'place', targetId: 'ash-farms' },
 }
 
 const storyIconAssets: Record<StoryIconId, string> = {
@@ -263,8 +263,8 @@ const skillTagDefinitions: Record<string, { label: string; summary: string }> = 
 
 const graveSpade: InventoryItem = {
   id: 'grave-spade',
-  name: 'Shovel',
-  description: 'A working tool with a polished haft and a nicked iron edge. Tamsin trusts it more than court steel.',
+  name: "Tamsin's Shovel",
+  description: 'Her working tool, with a polished haft, a nicked iron edge, and the weight of every honest grave she has dug. Tamsin trusts it more than court steel.',
   tags: ['tool'],
   iconAssetId: 'road',
   consumable: false,
@@ -345,7 +345,7 @@ const storySchema: StorySchema = {
   id: 'kings-lich-playable',
   title: 'The King’s Lich',
   premise: 'A royal order sends a practical gravedigger through opened graves, old rites, and a court that would rather name sacrifice as service.',
-  openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
+  openingNarration: 'Szary Dwór Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Czerwonbród opening somewhere beyond the rain.',
   victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
   defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
   goalNodeId: 'king-return',
@@ -360,7 +360,7 @@ const storySchema: StorySchema = {
     'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
     'All story material and style guidance must remain original and generic, without named protected references.',
   ],
-  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Barrow Crypt', 'Graymere Hall', 'Shovel', 'Grave Ash', 'Iron Nails', 'Sealed Writ', 'the lich'],
+  codexTerms: ['Czerwonbród', 'King Osric', 'Czarnobór Road', 'Popielowe Farms', 'Łysa Watchtower', 'Kurhan Crypt', 'Szary Dwór Hall', "Tamsin's Shovel", 'Grave Ash', 'Iron Nails', 'Sealed Writ', 'the lich'],
   player: {
     id: 'tamsin',
     name: 'Tamsin',
@@ -378,7 +378,7 @@ const storySchema: StorySchema = {
       contradiction: 'she respects burial rites but distrusts anyone who turns sacrifice into policy',
     },
     backstory: {
-      origin: 'Tamsin digs graves outside Redvale and was taken by levy because she knows the dead too well.',
+      origin: 'Tamsin digs graves outside Czerwonbród and was taken by levy because she knows the dead too well.',
       wound: 'She has buried neighbors for orders written by people who never learned their names.',
       want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
       privateKnowledge: 'Grave ash can blind a corpse for a few breaths if thrown into its eyes or mouth.',
@@ -388,9 +388,9 @@ const storySchema: StorySchema = {
   nodes: [
     {
       id: 'graymere-yard',
-      name: 'Graymere Yard',
-      publicName: 'Graymere Hall',
-      description: 'The muddy seat of King Osric, where orders sound cleaner than the roads they create.',
+      name: 'Szary Dwór Yard',
+      publicName: 'Szary Dwór Hall',
+      description: 'The muddy seat of King Osric, where limewashed walls, wet rushes, and polished orders make the roads sound cleaner than they are.',
       iconAssetId: 'road',
       nodeType: 'origin',
       exits: [
@@ -401,7 +401,7 @@ const storySchema: StorySchema = {
         {
           id: 'answer-royal-order',
           label: 'Answer the royal order',
-          reason: 'Tamsin needs to answer King Osric’s order before leaving Graymere Hall.',
+          reason: 'Tamsin needs to answer King Osric’s order before leaving Szary Dwór Hall.',
           activeEventId: 'royal-order',
           clearedByFlag: 'royal-order-answered',
         },
@@ -416,9 +416,9 @@ const storySchema: StorySchema = {
     },
     {
       id: 'ash-farms',
-      name: 'Ash Farms',
-      publicName: 'Ash Farms',
-      description: 'Sickly fields outside Redvale, where fresh graves keep opening and farmers count names under their breath.',
+      name: 'Popielowe Farms',
+      publicName: 'Popielowe Farms',
+      description: 'Sickly fields outside Czerwonbród, where fresh graves keep opening and farmers count names under their breath.',
       iconAssetId: 'crossroads',
       nodeType: 'settlement',
       exits: [
@@ -436,13 +436,13 @@ const storySchema: StorySchema = {
     },
     {
       id: 'old-watchtower',
-      name: 'Old Watchtower',
-      publicName: 'Old Watchtower',
-      description: 'A leaning tower where old rites, bad maps, and worse advice have survived the weather.',
+      name: 'Łysa Watchtower',
+      publicName: 'Łysa Watchtower',
+      description: 'A bald hill tower where old rites, bad maps, smoke-black icons, and worse advice have survived the weather.',
       iconAssetId: 'codex',
       nodeType: 'watch',
       exits: [
-        { toNodeId: 'graymere-yard', label: 'Descend toward Graymere Hall' },
+        { toNodeId: 'graymere-yard', label: 'Descend toward Szary Dwór Hall' },
         { toNodeId: 'ash-farms', label: 'Cross back toward the fields' },
         { toNodeId: 'blackpine-road', label: 'Take the marked road under the pines' },
         { toNodeId: 'barrow-crypt', label: 'Follow the tower map toward the barrow' },
@@ -457,9 +457,9 @@ const storySchema: StorySchema = {
     },
     {
       id: 'blackpine-road',
-      name: 'Blackpine Road',
-      publicName: 'Blackpine Road',
-      description: 'A cramped forest road where carts lie split and grave-cold mist hangs between the pines.',
+      name: 'Czarnobór Road',
+      publicName: 'Czarnobór Road',
+      description: 'A cramped forest road where split carts lean under black pines and grave-cold mist hangs low enough to drink.',
       iconAssetId: 'forest',
       nodeType: 'hazard',
       exits: [
@@ -477,14 +477,14 @@ const storySchema: StorySchema = {
     },
     {
       id: 'barrow-crypt',
-      name: 'Barrow Crypt',
-      publicName: 'Barrow Crypt',
+      name: 'Kurhan Crypt',
+      publicName: 'Kurhan Crypt',
       description: 'The lich’s buried hall, cold with old bones, stolen bells, and a ruler who has forgotten how to die.',
       iconAssetId: 'keep',
       nodeType: 'crypt',
       exits: [
         { toNodeId: 'old-watchtower', label: 'Retreat by the tower path' },
-        { toNodeId: 'blackpine-road', label: 'Return through Blackpine Road' },
+        { toNodeId: 'blackpine-road', label: 'Return through Czarnobór Road' },
         {
           toNodeId: 'king-return',
           label: 'Return to court with proof',
@@ -506,7 +506,7 @@ const storySchema: StorySchema = {
     {
       id: 'king-return',
       name: 'King Return',
-      publicName: 'Graymere Hall Return',
+      publicName: 'Szary Dwór Hall Return',
       description: 'The return to King Osric, where survival must become proof and proof must become a sentence.',
       iconAssetId: 'lantern',
       nodeType: 'court',
@@ -530,8 +530,8 @@ const storySchema: StorySchema = {
         role: 'Tired king',
         description: 'A thin ruler in a patched crown who has slept badly enough to mistake command for courage.',
         voice: 'formal, clipped, ashamed when pressed, impatient with delay',
-        want: 'Send someone to stop the lich before the dead around Redvale outnumber the living.',
-        knows: 'The old barrows beyond Blackpine Road are the source, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
+        want: 'Send someone to stop the lich before the dead around Czerwonbród outnumber the living.',
+        knows: 'The old barrows beyond Czarnobór Road are the source, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
       },
       choices: [
         {
@@ -546,7 +546,7 @@ const storySchema: StorySchema = {
           consequenceHint: 'The king resents the question but gives clearer information about the road east.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
-            { type: 'remember', text: 'King Osric admitted the barrows beyond Blackpine Road are the source of the rising dead.' },
+            { type: 'remember', text: 'King Osric admitted the barrows beyond Czarnobór Road are the source of the rising dead.' },
             { type: 'revealNode', nodeId: 'ash-farms' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
@@ -620,7 +620,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
         id: 'farmer-riel',
-        name: 'Farmer Riel',
+        name: 'Farmer Radek',
         role: 'Frightened father',
         description: 'A raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         voice: 'plain, guarded, angry from fear',
@@ -633,13 +633,13 @@ const storySchema: StorySchema = {
           label: 'Answer him with the truth you can afford',
           optionSummary: 'Give a limited honest answer and leave room for what is still unknown.',
           writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
-          actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
+          actionPrompt: 'The selected option is to answer Farmer Radek honestly about what is known, what is unknown, and the next intended step.',
           mode: 'say',
           tone: 'empathetic',
           skillTags: ['plain-speech'],
           consequenceHint: 'Honesty does not comfort him, but it gives him a reason to share what he heard.',
           effects: [
-            { type: 'remember', text: 'A bell rang beneath the hill before the Ash Farms graves opened.' },
+            { type: 'remember', text: 'A bell rang beneath the hill before the Popielowe Farms graves opened.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
         },
@@ -654,7 +654,7 @@ const storySchema: StorySchema = {
           requiresItemId: 'royal-writ',
           consequenceHint: 'The farmer distrusts the seal but points her toward the first sign.',
           effects: [
-            { type: 'remember', text: 'The first opened grave at Ash Farms belonged to a bell-ringer buried without his clapper.' },
+            { type: 'remember', text: 'The first opened grave at Popielowe Farms belonged to a bell-ringer buried without his clapper.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
         },
@@ -669,7 +669,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'blackpine-road',
       npcTemplate: {
         id: 'miller-joan',
-        name: 'Miller Joan',
+        name: 'Miller Janka',
         role: 'Injured farmer',
         description: 'A mud-covered miller with a shaking lantern and no patience for ceremonial courage.',
         voice: 'plain, angry, frightened, and practical',
@@ -690,7 +690,7 @@ const storySchema: StorySchema = {
           consequenceHint: 'The nails buy enough time to pull the trapped man free without drawing every corpse at once.',
           effects: [
             { type: 'loseItem', itemId: 'iron-nails' },
-            { type: 'remember', text: 'Miller Joan saw a corpse in royal colors among the dead from the east.' },
+            { type: 'remember', text: 'Miller Janka saw a corpse in royal colors among the dead from the east.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
         },
@@ -723,7 +723,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'old-perrin',
-        name: 'Old Perrin',
+        name: 'Old Piotr',
         role: 'Tower hermit',
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         voice: 'rasping, blunt, fond of ugly truths',
@@ -736,7 +736,7 @@ const storySchema: StorySchema = {
           label: 'Trade plain answers for the burial rite',
           optionSummary: 'Treat the hermit as a bargainer and exchange facts for instructions.',
           writerIntent: 'Offer a direct social option that rewards candor with ritual knowledge.',
-          actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
+          actionPrompt: 'The selected option is to give Old Piotr plain answers about the opened graves and demand the burial instructions in return.',
           mode: 'say',
           tone: 'direct',
           skillTags: ['plain-speech'],
@@ -775,10 +775,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'mark-safe-path',
-          label: 'Mark a quiet path with the Shovel',
-          optionSummary: 'Use the shovel as a practical tool to test ground and choose a safer route.',
+          label: "Mark a quiet path with Tamsin's Shovel",
+          optionSummary: "Use Tamsin's Shovel as a practical tool to test ground and choose a safer route.",
           writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
-          actionPrompt: 'The selected option is to use the Shovel to test soft earth and mark a path where the mist lies thinnest.',
+          actionPrompt: "The selected option is to use Tamsin's Shovel to test soft earth and mark a path where the mist lies thinnest.",
           mode: 'use-item',
           tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
@@ -814,7 +814,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'sergeant-maud',
-        name: 'Sergeant Maud',
+        name: 'Sergeant Magda',
         role: 'Deserter with a borrowed sword',
         description: 'A hollow-cheeked veteran whose shame has hardened into toll-taking.',
         voice: 'dry, threatening, tired beneath the threat',
@@ -827,7 +827,7 @@ const storySchema: StorySchema = {
           label: 'Tell the deserters what walks in royal colors',
           optionSummary: 'Use the deserters’ own fear and experience to make the roadblock feel pointless.',
           writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
-          actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
+          actionPrompt: 'The selected option is to tell Sergeant Magda about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
           mode: 'say',
           tone: 'direct',
           skillTags: ['plain-speech'],
@@ -865,10 +865,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'hook-charm-with-spade',
-          label: 'Hook the Bone Charm with the Shovel',
+          label: "Hook the Bone Charm with Tamsin's Shovel",
           optionSummary: 'Use reach and leverage to take the charm without barehanded contact.',
           writerIntent: 'Offer a risky tool-use option with a health cost.',
-          actionPrompt: 'The selected option is to use the Shovel to hook the Bone Charm away from the lich without touching it barehanded.',
+          actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Charm away from the lich without touching it barehanded.",
           mode: 'use-item',
           tone: 'reckless',
           skillTags: ['steady-hands'],
@@ -904,7 +904,7 @@ const storySchema: StorySchema = {
       name: 'The dead rise to the wrong bell',
       weight: 10,
       iconAssetId: 'keep',
-      prompt: 'The lich begins raising another host in Barrow Crypt while a cracked burial bell swings without its missing voice.',
+      prompt: 'The lich begins raising another host in Kurhan Crypt while a cracked burial bell swings without its missing voice.',
       objectiveNodeId: 'king-return',
       choices: [
         {
@@ -1722,6 +1722,7 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
 
 const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
 const playerAgencyRule = 'Do not write the player character’s private thoughts, feelings, doubts, motives, exact speech, or unchosen actions. Only frame, resolve, or respond to the selected option as stated.'
+const groundedMedievalRule = 'For texture, favor grounded medieval hardship, practical social friction, and original Polish-inspired place or character names already present in the schema; do not copy or evoke any specific external work.'
 
 function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   const node = getNode(state.currentNodeId)
@@ -1755,6 +1756,7 @@ Rules:
 - If an NPC speaks, write the NPC's actual name followed by a colon. Never write the literal label "Name:".
 - For fragile or quiet delivery, prefix that line with "[weak]", "[small]", or "[whisper]".
 - Do not reveal hidden routes, future places, or event tables.
+- ${groundedMedievalRule}
 - ${originalStoryRule}`
 }
 
@@ -1794,6 +1796,7 @@ Rules:
 - ${playerAgencyRule}
 - Do not invent additional health, inventory, map, victory, or loss changes beyond the hard effects listed above.
 - If someone speaks, use their actual name followed by a colon. Never write the literal label "Name:".
+- ${groundedMedievalRule}
 - ${originalStoryRule}`
 }
 
@@ -1824,6 +1827,7 @@ Rules:
 - If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
 - ${playerAgencyRule}
 - Do not invent health, inventory, map, victory, or loss changes.
+- ${groundedMedievalRule}
 - ${originalStoryRule}`
 }
 
@@ -3099,25 +3103,26 @@ function App() {
           <Card className="iff-chrome-panel">
             <CardHeader className="pb-2">
               <div className="min-w-0">
-                <p className="ui-label">Table of contents</p>
                 <CardTitle className="mt-1 font-[var(--font-display)] text-xl font-light leading-tight">{storySchema.title}</CardTitle>
-                <CardDescription className="mt-0.5 text-xs italic text-[var(--color-text-muted)]">Now at {currentNode.publicName}</CardDescription>
+                <p className="ui-label mt-1">Sample Story</p>
               </div>
             </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
-                <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
-                {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check settings'}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => theme === 'dark' ? 'light' : 'dark')}>
-                  {themeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
-                  {themeMode === 'dark' ? 'Light' : 'Dark'}
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-                  <SettingsIcon data-icon="inline-start" />
-                  Settings
-                </Button>
+            <CardContent>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
+                  <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
+                  {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check settings'}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => theme === 'dark' ? 'light' : 'dark')}>
+                    {themeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
+                    {themeMode === 'dark' ? 'Light' : 'Dark'}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+                    <SettingsIcon data-icon="inline-start" />
+                    Settings
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -3143,14 +3148,14 @@ function App() {
                 </TabsList>
                 <TabsContent value="story" className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
-                    <CardHeader className="shrink-0 border-b border-foreground pb-4">
+                    <CardHeader className="shrink-0 border-b border-[var(--color-border)] pb-4">
                       <div className="min-w-0">
                         <p className="ui-label">Current location</p>
                         <CardTitle className="mt-1 font-[var(--font-display)] text-4xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
                         <CardDescription className="mt-2 max-w-3xl font-serif text-base leading-7">{currentNode.description}</CardDescription>
                       </div>
                     </CardHeader>
-                    <aside className="iff-objective-card -mt-4 border-b border-foreground bg-muted px-4 py-3 font-serif text-sm leading-6" aria-live="polite">
+                    <aside className="iff-objective-card -mt-4 border-b border-[var(--color-border)] bg-muted px-4 py-3 font-serif text-sm leading-6" aria-live="polite">
                       <span className="ui-label mr-2">Objective</span>
                       <span className="text-sm italic text-[var(--color-text)]">{currentObjective}</span>
                     </aside>
