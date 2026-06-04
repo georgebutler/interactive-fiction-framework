@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { AlertCircleIcon, EyeIcon, PlayIcon, RotateCcwIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, EyeIcon, MoonIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -157,6 +157,10 @@ type StoryNode = {
 type StorySchema = {
   id: string
   title: string
+  premise: string
+  openingNarration: string
+  victoryResolution: string
+  defeatResolution: string
   goalNodeId: string
   maxTurns: number
   designNote: string
@@ -170,7 +174,7 @@ type StorySchema = {
 type FeedEntry = {
   id: string
   turn: number
-  kind: 'narration' | 'dialogue' | 'action' | 'system'
+  kind: 'narration' | 'dialogue' | 'selected' | 'consequence' | 'system' | 'error'
   speaker?: string
   text: string
   generatedText?: string
@@ -179,6 +183,8 @@ type FeedEntry = {
   nodeId?: string
   eventId?: string
   streaming?: boolean
+  consequenceBadges?: string[]
+  retryAction?: 'begin-scene' | 'choose-action'
 }
 
 type DebugEntry = {
@@ -211,6 +217,9 @@ type LlmSettings = {
 
 type AppView = 'story' | 'map' | 'codex' | 'character' | 'settings'
 type CodexSection = 'story' | 'people' | 'places'
+type AppPhase = 'story-select' | 'protagonist-intro' | 'playing'
+type ThemeMode = 'light' | 'dark'
+type OllamaStatus = 'checking' | 'connected' | 'unreachable'
 
 type CodexReference = {
   term: string
@@ -333,6 +342,10 @@ const boneCharm: InventoryItem = {
 const storySchema: StorySchema = {
   id: 'kings-lich-playable',
   title: 'The King’s Lich',
+  premise: 'A royal order sends a practical gravedigger through opened graves, old rites, and a court that would rather name sacrifice as service.',
+  openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
+  victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
+  defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
   goalNodeId: 'king-return',
   maxTurns: 14,
   designNote:
@@ -979,6 +992,10 @@ const defaultLlmSettings: LlmSettings = {
   model: 'qwen2.5:7b',
 }
 
+const llmSettingsStorageKey = 'iff:llm-settings'
+const themeStorageKey = 'iff:theme'
+const allKnownItems = [graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm]
+
 const initialState: CampaignState = {
   turn: 1,
   player: storySchema.player,
@@ -992,10 +1009,10 @@ const initialState: CampaignState = {
     {
       id: 'opening',
       turn: 1,
-      kind: 'dialogue',
-      speaker: 'King Osric',
+      kind: 'narration',
+      speaker: 'Narrator',
       nodeId: 'graymere-yard',
-      text: 'King Osric: Tamsin of Redvale, you know graves better than my remaining knights know roads. The old barrows have begun returning what we buried. Take this writ, follow the opened earth, and bring me proof that the dead will stay down.',
+      text: storySchema.openingNarration,
     },
   ],
   debugFeed: [],
@@ -1103,7 +1120,7 @@ async function assertLocalModelAvailable(settings: LlmSettings) {
   }
 }
 
-async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (chunk: string) => void) {
+async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (chunk: string) => void | Promise<void>) {
   const response = await fetch(normalizeOllamaGenerateEndpoint(settings.endpoint), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1122,7 +1139,7 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
   if (!response.body) {
     const data = (await response.json()) as { response?: string }
     const text = data.response ?? ''
-    onChunk(text)
+    await onChunk(text)
     return text
   }
 
@@ -1154,7 +1171,7 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
 
       if (chunk) {
         fullText += chunk
-        onChunk(chunk)
+        await onChunk(chunk)
       }
     }
   }
@@ -1370,8 +1387,8 @@ function getTravelDisabledReason(state: CampaignState, nodeId: string) {
 
 function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
   if (choice.requiresItemId && !hasInventoryItem(state.player, choice.requiresItemId)) {
-    const knownItem = [...state.player.inventory, graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm].find((item) => item.id === choice.requiresItemId)
-    return `Requires ${knownItem?.name ?? 'a missing item'}.`
+    const knownItem = allKnownItems.find((item) => item.id === choice.requiresItemId)
+    return `Requires: ${knownItem?.name ?? 'a missing item'}`
   }
 
   if (state.player.health.current <= 0) {
@@ -1424,6 +1441,69 @@ function describeEffect(effect: StoryEffect) {
     case 'setFlag':
       return `Set ${effect.flag}: ${String(effect.value)}`
   }
+}
+
+function getEffectBadge(effect: StoryEffect) {
+  switch (effect.type) {
+    case 'gainItem':
+      return `+ ${effect.item.name}`
+    case 'loseItem': {
+      const item = allKnownItems.find((candidate) => candidate.id === effect.itemId)
+      return `− ${item?.name ?? effect.itemId}`
+    }
+    case 'damage':
+      return `−${effect.amount} HP`
+    case 'heal':
+      return `+${effect.amount} HP`
+    case 'remember':
+      return 'Memory updated'
+    case 'revealNode':
+      return `Map: ${getNode(effect.nodeId).publicName}`
+    case 'moveToNode':
+      return `Travel: ${getNode(effect.nodeId).publicName}`
+    case 'setFlag':
+      return effect.value ? 'Story changed' : 'Story flag cleared'
+  }
+}
+
+function getChoiceModeBadge(mode: ChoiceMode) {
+  const labels: Record<ChoiceMode, string> = {
+    act: 'ACT',
+    say: 'SAY',
+    ask: 'ASK',
+    'use-item': 'USE',
+    risk: 'RISK',
+    wait: 'WAIT',
+  }
+
+  return labels[mode]
+}
+
+function choiceNeedsConfirmation(choice: StoryChoice, player: PlayableCharacter) {
+  return (choice.effects ?? []).some((effect) => {
+    if (effect.type === 'damage') {
+      return effect.amount > player.health.max * 0.2
+    }
+
+    if (effect.type === 'loseItem') {
+      const item = allKnownItems.find((candidate) => candidate.id === effect.itemId)
+      return Boolean(item && !item.consumable)
+    }
+
+    return false
+  })
+}
+
+function getTypewriterDelay(character: string) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0
+  if (/[.!?]/.test(character)) return 52
+  if (/[,;:]/.test(character)) return 34
+  if (/\s/.test(character)) return 8
+  return 3
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
@@ -1768,7 +1848,7 @@ function renderCodexText(
     }
 
     return (
-      <button key={`${part}-${index}`} type="button" className="inline cursor-pointer appearance-none border-0 bg-transparent p-0 align-baseline font-[inherit] italic leading-none text-foreground underline decoration-foreground underline-offset-2 transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground" onClick={openReference}>
+      <button key={`${part}-${index}`} type="button" className="inline cursor-pointer appearance-none border-0 bg-accent/60 px-0.5 align-baseline font-[inherit] leading-none text-foreground underline decoration-dotted decoration-2 underline-offset-4 transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground" title="Open journal entry" onClick={openReference}>
         {part}
       </button>
     )
@@ -1785,12 +1865,14 @@ function normalizeSpeakerLabel(label: string | undefined, fallback: string | und
 
 function StoryTranscript({
   state,
+  onRetry,
   onOpenCodexNode,
   onOpenCodexPerson,
   onOpenCodexItem,
   onOpenCodex,
 }: {
   state: CampaignState
+  onRetry?: () => void
   onOpenCodexNode: (nodeId: string) => void
   onOpenCodexPerson: (personId: string) => void
   onOpenCodexItem: (itemId: string) => void
@@ -1801,10 +1883,23 @@ function StoryTranscript({
   return (
     <div className="iff-transcript border-0 p-0 shadow-none">
       <div className="font-serif text-base leading-8 tracking-normal text-foreground">
-        {state.feed.map((entry) => (
-          <FeedBlock key={entry.id} entry={entry} references={references} onOpenCodexNode={onOpenCodexNode} onOpenCodexPerson={onOpenCodexPerson} onOpenCodexItem={onOpenCodexItem} onOpenCodex={onOpenCodex} />
+        {state.feed.map((entry, index) => (
+          <div key={entry.id}>
+            {index > 0 && index % 10 === 0 ? <StoryTurnDivider turn={entry.turn} /> : null}
+            <FeedBlock entry={entry} references={references} onRetry={onRetry} onOpenCodexNode={onOpenCodexNode} onOpenCodexPerson={onOpenCodexPerson} onOpenCodexItem={onOpenCodexItem} onOpenCodex={onOpenCodex} />
+          </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function StoryTurnDivider({ turn }: { turn: number }) {
+  return (
+    <div className="my-8 flex items-center gap-3 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <Separator className="flex-1" />
+      <span>Turn {turn}</span>
+      <Separator className="flex-1" />
     </div>
   )
 }
@@ -1812,6 +1907,7 @@ function StoryTranscript({
 function FeedBlock({
   entry,
   references,
+  onRetry,
   onOpenCodexNode,
   onOpenCodexPerson,
   onOpenCodexItem,
@@ -1819,6 +1915,7 @@ function FeedBlock({
 }: {
   entry: FeedEntry
   references: CodexReference[]
+  onRetry?: () => void
   onOpenCodexNode: (nodeId: string) => void
   onOpenCodexPerson: (personId: string) => void
   onOpenCodexItem: (itemId: string) => void
@@ -1832,8 +1929,16 @@ function FeedBlock({
   }
 
   const renderedLines = lines.length > 0 ? lines : [entry.streaming ? 'The next passage is taking shape…' : 'Continue to reveal the next line.']
+  const blockClassName = entry.kind === 'dialogue'
+    ? 'border-l border-foreground bg-muted/60 px-4 py-3'
+    : entry.kind === 'selected'
+      ? 'font-sans text-sm font-normal leading-6 text-muted-foreground'
+      : entry.kind === 'error'
+        ? 'border border-destructive bg-background px-4 py-3 text-destructive'
+        : ''
+
   return (
-    <section className="iff-log-line mb-7 last:mb-0">
+    <section className="iff-log-line mb-7 max-w-[72ch] last:mb-0">
       {entry.kind === 'system' ? (
         <div className="my-6 flex items-center gap-3 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <Separator className="flex-1 bg-foreground" />
@@ -1842,30 +1947,37 @@ function FeedBlock({
         </div>
       ) : null}
       {entry.kind !== 'system' ? (
-        <div className={entry.kind === 'action' ? 'border-l border-foreground pl-4' : ''}>
-            {entry.kind === 'action' ? <p className="mb-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your choice</p> : null}
+        <div className={blockClassName}>
             {renderedLines.map((line, index) => {
               const styledLine = getVisualNovelLineStyle(line)
               const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
               const displayedSpeaker = normalizeSpeakerLabel(entry.kind === 'dialogue' ? speakerMatch?.[1] ?? entry.speaker : speakerMatch?.[1], entry.speaker)
               const displayedText = speakerMatch ? speakerMatch[2] : styledLine.text
-              const shouldShowSpeaker = entry.kind !== 'action' && displayedSpeaker && displayedSpeaker !== 'Narrator'
+              const shouldShowSpeaker = entry.kind === 'dialogue' && displayedSpeaker && displayedSpeaker !== 'Narrator'
 
               return shouldShowSpeaker ? (
-                <p key={`${entry.id}-line-${index}`} className={`mb-2 grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-3 whitespace-pre-wrap text-base leading-8 last:mb-0 ${styledLine.className}`}>
-                  <span className="truncate font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
+                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
+                  <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
                     {renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}
                     {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                   </span>
                 </p>
               ) : (
-                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-8 last:mb-0 ${entry.kind === 'action' && index === 0 ? 'font-medium text-foreground' : ''} ${entry.kind === 'action' && index > 0 ? 'font-serif text-muted-foreground' : ''} ${styledLine.className}`}>
+                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
                   <span>{renderCodexText(displayedText, references, onOpenCodexNode, onOpenCodexPerson, onOpenCodexItem, onOpenCodex)}</span>
                   {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                 </p>
               )
             })}
+            {entry.consequenceBadges && entry.consequenceBadges.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {entry.consequenceBadges.map((badge) => <Badge key={badge} variant="secondary">{badge}</Badge>)}
+              </div>
+            ) : null}
+            {entry.kind === 'error' && onRetry ? (
+              <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetry}>Retry</Button>
+            ) : null}
         </div>
       ) : null}
     </section>
@@ -2126,12 +2238,14 @@ function MapGraphView({
   onSelectNode,
   onTravelNode,
   onOpenCodex,
+  compact = false,
 }: {
   state: CampaignState
   selectedNodeId: string
   onSelectNode: (nodeId: string) => void
   onTravelNode: (nodeId: string) => void
   onOpenCodex: (nodeId: string) => void
+  compact?: boolean
 }) {
   const model = getMapRenderModel(state, selectedNodeId)
 
@@ -2140,7 +2254,7 @@ function MapGraphView({
       <CardContent className="min-h-0 flex-1 p-0">
         <h2 className="sr-only">Route atlas</h2>
         <p className="sr-only">Trace known roads and select a marked place for its details.</p>
-        <div className="relative h-[min(72svh,760px)] min-h-[420px] overflow-hidden border border-foreground bg-background lg:h-full" aria-label="Interactive route atlas">
+        <div className={`relative overflow-hidden border border-foreground bg-background ${compact ? 'h-80 min-h-80' : 'h-[min(72svh,760px)] min-h-[420px] lg:h-full'}`} aria-label="Interactive route atlas">
           <Canvas dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 8, 8], fov: 30, near: 0.1, far: 60 }}>
             <color attach="background" args={['#ffffff']} />
             <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} onOpenCodex={onOpenCodex} />
@@ -2203,10 +2317,66 @@ function PlayerPanel({ state, currentObjective }: { state: CampaignState; curren
   )
 }
 
+function StatusStrip({
+  state,
+  expanded,
+  healthPulse,
+  toast,
+  savedFlash,
+  onToggleInventory,
+}: {
+  state: CampaignState
+  expanded: boolean
+  healthPulse?: 'damage' | 'heal'
+  toast?: string
+  savedFlash: boolean
+  onToggleInventory: () => void
+}) {
+  const player = state.player
+  const visibleInventory = player.inventory.filter((item) => item.visible)
+  const healthPercent = Math.max(0, Math.min(100, Math.round((player.health.current / player.health.max) * 100)))
+  const lowHealth = player.health.current / player.health.max < 0.25
+
+  return (
+    <section className={`relative border border-foreground bg-background p-3 ${lowHealth ? 'iff-low-health' : ''}`} aria-live="polite">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-sans text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{player.name}</span>
+        <span className={`min-w-24 ${healthPulse ? `iff-health-${healthPulse}` : ''}`}>
+          <span className="font-sans text-xs text-muted-foreground">HP {player.health.current}/{player.health.max}</span>
+          <span className="mt-1 block h-1.5 border border-foreground bg-background">
+            <span className="block h-full bg-foreground transition-all duration-300" style={{ width: `${healthPercent}%` }} />
+          </span>
+        </span>
+        <Button type="button" variant="outline" size="sm" onClick={onToggleInventory}>
+          Inventory {visibleInventory.length}
+        </Button>
+        {savedFlash ? <span className="font-sans text-xs text-muted-foreground">Saved</span> : null}
+      </div>
+      {expanded ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {visibleInventory.map((item) => (
+            <span key={item.id} className="group relative inline-flex">
+              <Badge variant="secondary">{item.name}</Badge>
+              <span className="pointer-events-none absolute left-0 top-full mt-2 hidden w-72 border border-foreground bg-popover p-3 text-popover-foreground group-hover:block group-focus-within:block">
+                <span className="block font-sans text-xs font-semibold uppercase tracking-[0.14em]">{item.name}</span>
+                <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
+                {item.tags?.length ? <span className="mt-2 block font-sans text-xs text-muted-foreground">Tags: {item.tags.join(', ')}</span> : null}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {toast ? <div className="absolute right-3 top-full mt-2 border border-foreground bg-background px-3 py-2 font-sans text-xs shadow-none">{toast}</div> : null}
+    </section>
+  )
+}
+
 function ChoicePanel({
   state,
   isAdvancing,
   activeLineGatedEntry,
+  confirmingChoiceId,
+  onCancelConfirm,
   onBeginScene,
   onChoose,
   onContinue,
@@ -2214,6 +2384,8 @@ function ChoicePanel({
   state: CampaignState
   isAdvancing: boolean
   activeLineGatedEntry?: FeedEntry
+  confirmingChoiceId?: string
+  onCancelConfirm: () => void
   onBeginScene: () => void
   onChoose: (choice: StoryChoice) => void
   onContinue: () => void
@@ -2259,24 +2431,39 @@ function ChoicePanel({
         <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {choices.length > 4 ? <p className="font-sans text-xs text-muted-foreground">({choices.length} options)</p> : null}
         {choices.map((choice) => {
           const disabledReason = getChoiceDisabledReason(state, choice)
           const disabled = Boolean(disabledReason) || isAdvancing
+          const needsConfirm = choiceNeedsConfirmation(choice, state.player)
+          const confirming = confirmingChoiceId === choice.id
           const summaryId = `${choice.id}-summary`
           const disabledId = `${choice.id}-disabled-reason`
           const describedBy = [choice.optionSummary ? summaryId : undefined, disabledReason ? disabledId : undefined].filter(Boolean).join(' ') || undefined
 
           return (
-            <Button key={choice.id} type="button" variant="outline" disabled={disabled} title={disabledReason ?? choice.consequenceHint ?? choice.optionSummary ?? choice.label} aria-describedby={describedBy} className="iff-choice-card h-auto w-full justify-start whitespace-normal px-4 py-4 text-left font-serif shadow-none disabled:hover:bg-background disabled:hover:text-foreground" onClick={() => onChoose(choice)}>
-              <span className="grid w-full gap-2">
-                <span className="font-medium leading-6 text-foreground group-hover/button:text-background">{choice.label}</span>
+            <Button key={choice.id} type="button" variant={confirming ? 'secondary' : 'outline'} disabled={disabled} title={disabledReason ?? choice.consequenceHint ?? choice.optionSummary ?? choice.label} aria-describedby={describedBy} className="iff-choice-card h-auto min-h-11 w-full justify-start whitespace-normal px-4 py-4 text-left font-serif shadow-none disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-background disabled:hover:text-foreground" onClick={() => onChoose(choice)}>
+              <span className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3">
+                <span className="mt-1 flex flex-col items-center gap-2">
+                  <span className="size-2 border border-foreground bg-foreground" title={choice.skillTags?.join(', ') || 'General'} />
+                  <Badge variant="outline" className="px-1 py-0 font-sans text-[0.58rem] leading-4">{getChoiceModeBadge(choice.mode)}</Badge>
+                </span>
+                <span className="grid gap-2">
+                <span className="font-medium leading-6 text-foreground group-hover/button:text-background">{confirming ? `Confirm: ${choice.label}` : choice.label}</span>
                 {choice.optionSummary ? <span id={summaryId} className="font-serif text-sm font-normal leading-6 text-muted-foreground">{choice.optionSummary}</span> : null}
                 {choice.consequenceHint ? <span className="border-t border-foreground pt-2 font-serif text-xs font-normal leading-5 text-muted-foreground">{choice.consequenceHint}</span> : null}
                 {disabledReason ? <span id={disabledId} className="font-sans text-xs font-medium text-muted-foreground">{disabledReason}</span> : null}
+                {needsConfirm && confirming ? (
+                  <span className="font-sans text-xs text-muted-foreground">
+                    This choice has lasting consequences. <button type="button" className="underline underline-offset-2" onClick={(event) => { event.stopPropagation(); onCancelConfirm() }}>Cancel</button>
+                  </span>
+                ) : null}
+                </span>
               </span>
             </Button>
           )
         })}
+        {isAdvancing ? <p className="font-sans text-xs text-muted-foreground">Waiting for narrator…</p> : null}
       </CardContent>
     </Card>
   )
@@ -2554,28 +2741,246 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
   )
 }
 
+function StorySelectionScreen({ onSelect }: { onSelect: () => void }) {
+  return (
+    <main className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
+      <Card className="iff-chrome-panel max-w-2xl">
+        <CardHeader>
+          <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Choose a story</p>
+          <CardTitle className="text-4xl">{storySchema.title}</CardTitle>
+          <CardDescription className="font-serif text-base leading-7">{storySchema.premise}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="border border-foreground bg-background p-4">
+            <p className="font-sans text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Protagonist</p>
+            <p className="mt-2 font-serif text-lg">{storySchema.player.name}, {storySchema.player.role}</p>
+          </div>
+          <Button type="button" size="lg" onClick={onSelect}>
+            Select story
+          </Button>
+        </CardContent>
+      </Card>
+    </main>
+  )
+}
+
+function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
+  const player = storySchema.player
+  const visibleInventory = player.inventory.filter((item) => item.visible)
+
+  return (
+    <main className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
+      <Card className="iff-chrome-panel max-w-3xl">
+        <CardHeader>
+          <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">You are</p>
+          <CardTitle className="text-4xl">{player.name}</CardTitle>
+          <CardDescription className="font-serif text-base leading-7">{player.role}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]">
+          <img src={player.portraitAsset} alt="" className="h-44 w-32 border border-foreground object-cover" />
+          <div className="flex flex-col gap-4">
+            <p className="font-serif text-base leading-7 text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">HP {player.health.current}/{player.health.max}</Badge>
+              {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
+            </div>
+            <div className="border-l border-foreground pl-3">
+              <p className="font-sans text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Opening memory</p>
+              <p className="mt-1 font-serif text-sm leading-6">{player.memory[0]}</p>
+            </div>
+            <Button type="button" size="lg" onClick={onBegin}>Begin</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </main>
+  )
+}
+
+function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: () => void }) {
+  if (state.outcome === 'running') return null
+  const won = state.outcome === 'won'
+  const choices = state.feed.filter((entry) => entry.kind === 'selected')
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-background/95 p-4 text-foreground">
+      <Card className="iff-chrome-panel max-h-[90svh] w-full max-w-3xl overflow-y-auto">
+        <CardHeader>
+          <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{won ? 'Victory' : 'Defeat'}</p>
+          <CardTitle className="text-4xl">{storySchema.title}</CardTitle>
+          <CardDescription className="font-serif text-base leading-7">{won ? storySchema.victoryResolution : storySchema.defeatResolution}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Badge variant="secondary">Total turns: {state.turn}</Badge>
+          <details className="border border-foreground bg-background p-4">
+            <summary className="cursor-pointer font-sans text-sm font-semibold uppercase tracking-[0.14em]">Review your journey</summary>
+            <div className="mt-3 flex flex-col gap-2">
+              {choices.map((entry) => (
+                <p key={entry.id} className="font-serif text-sm leading-6 text-muted-foreground"><span className="font-sans text-xs uppercase tracking-[0.14em]">Turn {entry.turn}</span> — {entry.text}</p>
+              ))}
+              {choices.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No choices recorded yet.</p> : null}
+            </div>
+          </details>
+          <Button type="button" size="lg" onClick={onPlayAgain}>Play Again</Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 function App() {
   const [campaign, setCampaign] = useState(initialState)
-  const [llmSettings, setLlmSettings] = useState(defaultLlmSettings)
+  const [llmSettings, setLlmSettings] = useState<LlmSettings>(() => {
+    try {
+      const saved = window.localStorage.getItem(llmSettingsStorageKey)
+      return saved ? { ...defaultLlmSettings, ...(JSON.parse(saved) as Partial<LlmSettings>) } : defaultLlmSettings
+    } catch {
+      return defaultLlmSettings
+    }
+  })
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    try {
+      const saved = window.localStorage.getItem(themeStorageKey) as ThemeMode | null
+      if (saved === 'light' || saved === 'dark') return saved
+    } catch {
+      // Ignore localStorage read failures.
+    }
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+  const [appPhase, setAppPhase] = useState<AppPhase>('story-select')
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [codexOpen, setCodexOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [inventoryExpanded, setInventoryExpanded] = useState(false)
+  const [mapCollapsed, setMapCollapsed] = useState(false)
   const [currentView, setCurrentView] = useState<AppView>('story')
   const [codexSection, setCodexSection] = useState<CodexSection>('story')
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.currentNodeId)
   const [selectedPersonId, setSelectedPersonId] = useState(initialState.player.id)
   const [selectedItemId, setSelectedItemId] = useState(initialState.player.inventory[0]?.id)
   const [llmError, setLlmError] = useState<string | undefined>()
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [testConnectionMessage, setTestConnectionMessage] = useState<string>()
+  const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
+  const [newContentWaiting, setNewContentWaiting] = useState(false)
+  const [isScrollLocked, setIsScrollLocked] = useState(false)
+  const [statusToast, setStatusToast] = useState<string>()
+  const [healthPulse, setHealthPulse] = useState<'damage' | 'heal'>()
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [confirmingChoiceId, setConfirmingChoiceId] = useState<string>()
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
+  const storyScrollRef = useRef<HTMLDivElement | null>(null)
+  const previousHealthRef = useRef(initialState.player.health.current)
+  const previousInventoryIdsRef = useRef(initialState.player.inventory.map((item) => item.id).join('|'))
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
   const activeLineGatedEntry = useMemo(() => getActiveLineGatedEntry(campaign), [campaign])
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode
+    window.localStorage.setItem(themeStorageKey, themeMode)
+  }, [themeMode])
+
+  useEffect(() => {
+    document.title = `${storySchema.title} — IFF`
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(llmSettingsStorageKey, JSON.stringify(llmSettings))
+  }, [llmSettings])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function checkConnection() {
+      setOllamaStatus('checking')
+      try {
+        const response = await fetch(`${normalizeOllamaBase(llmSettings.endpoint)}/api/tags`)
+        if (!response.ok) throw new Error(`Ollama returned ${response.status}`)
+        const data = (await response.json()) as { models?: Array<{ name?: string }> }
+        const names = data.models?.map((model) => model.name).filter((name): name is string => Boolean(name)) ?? []
+        if (!cancelled) {
+          setAvailableModels(names)
+          setOllamaStatus('connected')
+          if (names.length > 0 && !names.includes(llmSettings.model)) {
+            setLlmSettings((settings) => ({ ...settings, model: names[0] }))
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableModels([])
+          setOllamaStatus('unreachable')
+        }
+      }
+    }
+
+    checkConnection()
+
+    return () => {
+      cancelled = true
+    }
+  }, [llmSettings.endpoint])
+
+  useEffect(() => {
+    const previousHealth = previousHealthRef.current
+    if (campaign.player.health.current !== previousHealth) {
+      const pulse = campaign.player.health.current < previousHealth ? 'damage' : 'heal'
+      setHealthPulse(pulse)
+      window.setTimeout(() => setHealthPulse(undefined), 390)
+      previousHealthRef.current = campaign.player.health.current
+    }
+
+    const previousIds = previousInventoryIdsRef.current.split('|').filter(Boolean)
+    const currentVisibleInventory = campaign.player.inventory.filter((item) => item.visible)
+    const currentIds = currentVisibleInventory.map((item) => item.id)
+    const gained = currentVisibleInventory.find((item) => !previousIds.includes(item.id))
+    const lostId = previousIds.find((id) => !currentIds.includes(id))
+    if (gained || lostId) {
+      const lostItem = allKnownItems.find((item) => item.id === lostId)
+      setStatusToast(gained ? `+ ${gained.name} added` : `− ${lostItem?.name ?? lostId} used`)
+      window.setTimeout(() => setStatusToast(undefined), 2000)
+      previousInventoryIdsRef.current = currentIds.join('|')
+    }
+  }, [campaign.player.health.current, campaign.player.inventory])
+
+  useEffect(() => {
+    if (campaign.turn > 1 && !isAdvancing) {
+      window.localStorage.setItem(`iff:${storySchema.id}:run-1`, JSON.stringify(campaign))
+      setSavedFlash(true)
+      window.setTimeout(() => setSavedFlash(false), 900)
+    }
+  }, [campaign.turn, isAdvancing, campaign])
+
   const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
+    if (isScrollLocked) {
+      setNewContentWaiting(true)
+      return
+    }
+
     requestAnimationFrame(() => {
       const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       scrollAnchorRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : behavior, block: 'end' })
     })
+  }
+
+  const handleStoryScroll = () => {
+    const scrollContainer = storyScrollRef.current
+    if (!scrollContainer) return
+    const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+    const locked = distanceFromBottom > 48
+    setIsScrollLocked(locked)
+    if (!locked) {
+      setNewContentWaiting(false)
+    }
+  }
+
+  const resumeAutoScroll = () => {
+    setIsScrollLocked(false)
+    setNewContentWaiting(false)
+    requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
   }
 
   const appendFeedEntry = (entry: Omit<FeedEntry, 'id'>) => {
@@ -2603,13 +3008,20 @@ function App() {
         return { ...nextEntry, text: getRevealedFeedText(nextEntry, revealedLineCount) }
       })
     }
-    const fullText = await streamLocalText(llmSettings, prompt, (chunk) => {
-      pendingLine += chunk
-      const lines = pendingLine.split('\n')
-      pendingLine = lines.pop() ?? ''
+    const fullText = await streamLocalText(llmSettings, prompt, async (chunk) => {
+      for (const character of chunk) {
+        pendingLine += character
+        const lines = pendingLine.split('\n')
+        pendingLine = lines.pop() ?? ''
 
-      if (lines.length > 0) {
-        appendGeneratedText(`${lines.join('\n')}\n`)
+        if (lines.length > 0) {
+          appendGeneratedText(`${lines.join('\n')}\n`)
+        }
+
+        const delay = getTypewriterDelay(character)
+        if (delay > 0) {
+          await wait(delay)
+        }
       }
     })
 
@@ -2691,10 +3103,14 @@ function App() {
       await streamFeedEntry(currentNarratorEntryId, prompt)
       updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
       if (narratorEntryId) {
-        updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, streaming: false }))
+        updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, kind: entry.text ? entry.kind : 'error', text: entry.text || `Narrator unavailable — ${message}`, streaming: false, retryAction: 'begin-scene' }))
+      } else {
+        appendFeedEntry({ turn: stateAtStart.turn, kind: 'error', speaker: 'System', nodeId: stateAtStart.currentNodeId, text: `Narrator unavailable — ${message}`, retryAction: 'begin-scene' })
       }
-      setLlmError(error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.')
+      setPendingRetry(() => () => void openSceneFromState(stateAtStart, leadingFeedEntries))
+      setLlmError(message)
     } finally {
       setIsAdvancing(false)
     }
@@ -2743,6 +3159,12 @@ function App() {
       return
     }
 
+    if (choiceNeedsConfirmation(choice, campaign.player) && confirmingChoiceId !== choice.id) {
+      setConfirmingChoiceId(choice.id)
+      return
+    }
+
+    setConfirmingChoiceId(undefined)
     setIsAdvancing(true)
     setLlmError(undefined)
 
@@ -2761,11 +3183,11 @@ function App() {
 
       appendFeedEntry({
         turn,
-        kind: 'action',
+        kind: 'selected',
         speaker: 'Your choice',
         nodeId: node.id,
         eventId: event.id,
-        text: choice.optionSummary ? `${choice.label}\n${choice.optionSummary}` : choice.label,
+        text: `You decided to ${choice.label.charAt(0).toLowerCase()}${choice.label.slice(1)}.`,
       })
       appendDebugEntry({
         turn,
@@ -2777,7 +3199,7 @@ function App() {
       appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
       const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
-      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, streaming: false }))
+      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: effects.map(getEffectBadge), streaming: false }))
 
       let updatedStoryNpcs = stateAtStart.storyNpcs
       if (sceneNpc) {
@@ -2826,7 +3248,10 @@ function App() {
         })
       }
     } catch (error) {
-      setLlmError(error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.')
+      const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
+      appendFeedEntry({ turn: campaign.turn, kind: 'error', speaker: 'System', nodeId: campaign.currentNodeId, eventId: campaign.currentEvent?.id, text: `Narrator unavailable — ${message}`, retryAction: 'choose-action' })
+      setPendingRetry(() => () => void chooseAction(choice))
+      setLlmError(message)
     } finally {
       setIsAdvancing(false)
     }
@@ -2834,22 +3259,24 @@ function App() {
 
   const resetCampaign = () => {
     setLlmError(undefined)
+    setPendingRetry(undefined)
     setCodexSection('story')
     setSelectedNodeId(initialState.currentNodeId)
     setSelectedPersonId(initialState.player.id)
     setSelectedItemId(initialState.player.inventory[0]?.id)
     setCampaign(initialState)
+    setAppPhase('protagonist-intro')
   }
 
   const openMapNode = (nodeId: string) => {
     setSelectedNodeId(nodeId)
-    setCurrentView('map')
+    setCodexOpen(false)
   }
 
   const openCodexNode = (nodeId: string) => {
     setCodexSection('places')
     setSelectedNodeId(nodeId)
-    setCurrentView('codex')
+    setCodexOpen(true)
   }
 
   const openCodexPerson = (personId: string) => {
@@ -2860,7 +3287,7 @@ function App() {
 
     setCodexSection('people')
     setSelectedPersonId(personId)
-    setCurrentView('codex')
+    setCodexOpen(true)
   }
 
   const openCodexItem = (itemId: string) => {
@@ -2870,12 +3297,20 @@ function App() {
 
   const openCodex = () => {
     setCodexSection('story')
-    setCurrentView('codex')
+    setCodexOpen(true)
+  }
+
+  if (appPhase === 'story-select') {
+    return <StorySelectionScreen onSelect={() => setAppPhase('protagonist-intro')} />
+  }
+
+  if (appPhase === 'protagonist-intro') {
+    return <ProtagonistIntroScreen onBegin={() => setAppPhase('playing')} />
   }
 
   return (
     <main className="iff-app-shell min-h-svh text-foreground lg:h-svh lg:overflow-hidden">
-      <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-4 py-6 lg:h-full lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-[1440px] gap-4 px-4 py-4 lg:h-full lg:min-h-0 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
         <aside className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto">
           <Card className="iff-chrome-panel">
             <CardHeader className="pb-2">
@@ -2886,34 +3321,43 @@ function App() {
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <nav aria-label="Primary">
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    ['story', 'Story'],
-                    ['map', 'Map'],
-                    ['codex', 'Journal'],
-                    ['character', 'Character'],
-                    ['settings', 'Options'],
-                  ] as Array<[AppView, string]>).map(([view, label]) => {
-                    const isCurrentView = currentView === view
-
-                    return (
-                      <Button key={view} type="button" variant={isCurrentView ? 'default' : 'outline'} aria-current={isCurrentView ? 'page' : undefined} className="justify-start gap-2" onClick={() => setCurrentView(view)}>
-                        <span className={`size-1.5 border border-current ${isCurrentView ? 'bg-current' : 'bg-transparent'}`} />
-                        {label}
-                      </Button>
-                    )
-                  })}
-                </div>
-              </nav>
+              <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
+                <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
+                {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check settings'}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => theme === 'dark' ? 'light' : 'dark')}>
+                  {themeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
+                  {themeMode === 'dark' ? 'Light' : 'Dark'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+                  <SettingsIcon data-icon="inline-start" />
+                  Settings
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
+          <StatusStrip state={campaign} expanded={inventoryExpanded} healthPulse={healthPulse} toast={statusToast} savedFlash={savedFlash} onToggleInventory={() => setInventoryExpanded((value) => !value)} />
+
           <PlayerPanel state={campaign} currentObjective={currentObjective} />
+
+          {mapCollapsed ? (
+            <Button type="button" variant="outline" className="justify-start" onClick={() => setMapCollapsed(false)}>
+              Map: {currentNode.publicName}
+            </Button>
+          ) : (
+            <div className="min-h-80 flex-1">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="font-sans text-xs uppercase tracking-[0.18em] text-muted-foreground">Map</p>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setMapCollapsed(true)}>Collapse</Button>
+              </div>
+              <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onTravelNode={travelToNode} onOpenCodex={openCodexNode} compact />
+            </div>
+          )}
         </aside>
 
         <section className="flex min-h-0 flex-col gap-4 lg:h-full lg:overflow-hidden">
-          {currentView === 'story' ? (
             <div className="flex min-h-0 flex-1 flex-col gap-4">
               {llmError ? (
                 <Alert variant="destructive" className="iff-chrome-panel">
@@ -2936,41 +3380,39 @@ function App() {
                   {currentObjective}
                 </aside>
                 <CardContent className="min-h-0 flex-1 p-0">
-                  <ScrollArea className="h-[min(58svh,620px)] min-h-0 lg:h-full">
+                  <div ref={storyScrollRef} onScroll={handleStoryScroll} className="relative h-[min(58svh,620px)] min-h-0 overflow-y-auto lg:h-full">
                     <div className="p-4 lg:p-6">
-                      <StoryTranscript state={campaign} onOpenCodexNode={openCodexNode} onOpenCodexPerson={openCodexPerson} onOpenCodexItem={openCodexItem} onOpenCodex={openCodex} />
+                      <StoryTranscript state={campaign} onRetry={pendingRetry} onOpenCodexNode={openCodexNode} onOpenCodexPerson={openCodexPerson} onOpenCodexItem={openCodexItem} onOpenCodex={openCodex} />
                       <div ref={scrollAnchorRef} />
                     </div>
-                  </ScrollArea>
+                    {newContentWaiting ? (
+                      <Button type="button" size="sm" className="sticky bottom-4 left-1/2 -translate-x-1/2" onClick={resumeAutoScroll}>↓ New content</Button>
+                    ) : null}
+                  </div>
                 </CardContent>
               </Card>
-
-              <div className="shrink-0 lg:max-h-[38svh] lg:overflow-y-auto">
-                <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
-              </div>
             </div>
-          ) : null}
+        </section>
 
-          {currentView === 'map' ? <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onTravelNode={travelToNode} onOpenCodex={openCodexNode} /> : null}
+        <aside className="flex min-h-0 flex-col gap-4 lg:h-full lg:overflow-hidden">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setCodexOpen(true)}>
+              <BookOpenIcon data-icon="inline-start" />
+              Journal
+            </Button>
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setCurrentView('character')}>
+              Character
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
+          </div>
+        </aside>
 
-          {currentView === 'codex' ? (
-            <CodexPanel
-              state={campaign}
-              section={codexSection}
-              selectedNodeId={selectedNodeId}
-              selectedPersonId={selectedPersonId}
-              onSelectSection={setCodexSection}
-              onSelectNode={setSelectedNodeId}
-              onSelectPerson={setSelectedPersonId}
-              onOpenMap={openMapNode}
-            />
-          ) : null}
-
-          {currentView === 'character' ? <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} /> : null}
-
-          {currentView === 'settings' ? (
+        {settingsOpen ? (
+          <div className="fixed inset-0 bg-background/80" onClick={() => setSettingsOpen(false)}>
             <div className="min-h-0 overflow-y-auto">
-              <Card className="iff-chrome-panel">
+              <Card className="iff-chrome-panel ml-auto min-h-svh w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
                 <CardHeader>
                   <CardTitle>Options</CardTitle>
                   <CardDescription className="font-serif">Manage the session. Technical details stay tucked away.</CardDescription>
@@ -3000,8 +3442,25 @@ function App() {
                       </label>
                       <label className="flex flex-col gap-1.5 text-sm font-medium">
                         Runtime model
-                        <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />
+                        {availableModels.length > 0 ? (
+                          <select className="border border-foreground bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))}>
+                            {availableModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                          </select>
+                        ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />}
                       </label>
+                      <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
+                        <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
+                        {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check your settings.'}
+                      </div>
+                      <Button type="button" variant="outline" onClick={async () => {
+                        try {
+                          await assertLocalModelAvailable(llmSettings)
+                          setTestConnectionMessage('✓ Model ready')
+                        } catch (error) {
+                          setTestConnectionMessage(`✗ Could not connect: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                        }
+                      }}>Test Connection</Button>
+                      {testConnectionMessage ? <p className="font-serif text-sm text-muted-foreground">{testConnectionMessage}</p> : null}
                       {llmError ? (
                         <Alert variant="destructive">
                           <AlertCircleIcon />
@@ -3020,8 +3479,26 @@ function App() {
 
               {advancedOpen && debugMode ? <DebugPanel entries={campaign.debugFeed} /> : null}
             </div>
-          ) : null}
-        </section>
+          </div>
+        ) : null}
+
+        {codexOpen ? (
+          <div className="fixed inset-0 bg-background/80" onClick={() => setCodexOpen(false)}>
+            <div className="ml-auto min-h-svh w-full max-w-2xl overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+              <CodexPanel state={campaign} section={codexSection} selectedNodeId={selectedNodeId} selectedPersonId={selectedPersonId} onSelectSection={setCodexSection} onSelectNode={setSelectedNodeId} onSelectPerson={setSelectedPersonId} onOpenMap={openMapNode} />
+            </div>
+          </div>
+        ) : null}
+
+        {currentView === 'character' ? (
+          <div className="fixed inset-0 bg-background/80" onClick={() => setCurrentView('story')}>
+            <div className="ml-auto min-h-svh w-full max-w-3xl overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+              <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} />
+            </div>
+          </div>
+        ) : null}
+
+        <EndScreen state={campaign} onPlayAgain={resetCampaign} />
       </div>
     </main>
   )
