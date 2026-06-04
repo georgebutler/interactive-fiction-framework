@@ -21,12 +21,8 @@ type InventoryItem = {
   description: string
   tags?: string[]
   visible: boolean
-}
-
-type ItemTagDefinition = {
-  label: string
-  summary: string
-  detail: string
+  iconAssetId?: StoryIconId
+  consumable?: boolean
 }
 
 type PlayerVoice = {
@@ -239,110 +235,98 @@ const storyIconAssets: Record<StoryIconId, string> = {
 // Fra Filippo Lippi, "Portrait of a Woman with a Man at a Casement", object 436896.
 const publicDomainPortraitAsset = '/portraits/fra-filippo-lippi-portrait-public-domain.jpg'
 
-const itemTagDefinitions: Record<string, ItemTagDefinition> = {
-  tool: {
-    label: 'Tool',
-    summary: 'A practical object for changing the environment.',
-    detail: 'Useful for lifting, cutting, prying, digging, fixing, or improvising.',
+const skillTagDefinitions: Record<string, { label: string; summary: string }> = {
+  'grave-lore': {
+    label: 'Burial Knowledge',
+    summary: 'Knows grave rites, burial signs, and how the dead are meant to rest.',
   },
-  ward: {
-    label: 'Ward',
-    summary: 'An object meant to resist hostile pressure.',
-    detail: 'May help repel, delay, blind, seal, or weaken a threat.',
+  'plain-speech': {
+    label: 'Plain Speaking',
+    summary: 'Can cut through fear, rank, and ceremony with direct words.',
   },
-  iron: {
-    label: 'Iron',
-    summary: 'A material with weight against uncanny forces.',
-    detail: 'May matter for binding, cutting, grounding, or containment.',
-  },
-  proof: {
-    label: 'Proof',
-    summary: 'Evidence that can change what people accept.',
-    detail: 'Can support claims, unlock testimony, earn trust, or pressure officials.',
-  },
-  authority: {
-    label: 'Authority',
-    summary: 'An object that carries official force.',
-    detail: 'Can demand access, shelter, answers, obedience, or accountability.',
-  },
-  salvage: {
-    label: 'Salvage',
-    summary: 'Imperfect material made useful by improvisation.',
-    detail: 'Useful for repairs, substitutions, traps, or desperate plans.',
-  },
-  ritual: {
-    label: 'Ritual',
-    summary: 'An item with ceremonial relevance.',
-    detail: 'Relevant to rites, symbols, names, vows, witnesses, or proper sequence.',
-  },
-  silver: {
-    label: 'Silver',
-    summary: 'A material that may matter to value, purity, or rites.',
-    detail: 'May help when resonance, formality, or symbolic weight matters.',
+  'steady-hands': {
+    label: 'Steady Hands',
+    summary: 'Can keep control during delicate, dangerous, or physical work.',
   },
 }
 
 const graveSpade: InventoryItem = {
   id: 'grave-spade',
-  name: 'grave spade',
+  name: 'Shovel',
   description: 'A working tool with a polished haft and a nicked iron edge. Tamsin trusts it more than court steel.',
   tags: ['tool'],
+  iconAssetId: 'road',
+  consumable: false,
   visible: true,
 }
 
 const graveAsh: InventoryItem = {
   id: 'grave-ash',
-  name: 'grave ash',
+  name: 'Grave Ash',
   description: 'A stoppered pouch of ash gathered from consecrated soil. It can blind the dead for a few breaths.',
   tags: ['ward', 'ritual'],
+  iconAssetId: 'lantern',
+  consumable: true,
   visible: true,
 }
 
 const ironNails: InventoryItem = {
   id: 'iron-nails',
-  name: 'iron nails',
+  name: 'Iron Nails',
   description: 'A palmful of coffin nails. They still remember the shape of a shut door.',
   tags: ['iron', 'ward'],
+  iconAssetId: 'keep',
+  consumable: true,
   visible: true,
 }
 
 const royalWrit: InventoryItem = {
   id: 'royal-writ',
-  name: 'royal writ',
+  name: 'Sealed Writ',
   description: 'King Osric’s command, stamped in red wax. It opens gates and closes excuses.',
   tags: ['proof', 'authority'],
+  iconAssetId: 'codex',
+  consumable: false,
   visible: true,
 }
 
 const betterKnife: InventoryItem = {
   id: 'armory-knife',
-  name: 'armory knife',
+  name: 'Armory Knife',
   description: 'A narrow knife with honest balance. Not heroic, but useful when knots, straps, or hands must be cut free.',
   tags: ['iron', 'tool'],
+  iconAssetId: 'lantern',
+  consumable: true,
   visible: true,
 }
 
 const crackedSpearHead: InventoryItem = {
   id: 'cracked-spear-head',
-  name: 'cracked spearhead',
+  name: 'Cracked Spearhead',
   description: 'Salvaged from a weapon too poor to carry whole. It is still iron, and iron still has opinions about the dead.',
   tags: ['iron', 'salvage'],
+  iconAssetId: 'keep',
+  consumable: true,
   visible: true,
 }
 
 const bellClapper: InventoryItem = {
   id: 'bell-clapper',
-  name: 'silver bell clapper',
+  name: 'Silver Bell Clapper',
   description: 'The missing tongue of an old burial bell, dark with age and bright where Tamsin rubbed it clean.',
   tags: ['ritual', 'silver'],
+  iconAssetId: 'codex',
+  consumable: false,
   visible: true,
 }
 
 const boneCharm: InventoryItem = {
   id: 'bone-charm',
-  name: 'bone charm',
+  name: 'Bone Charm',
   description: 'A fingerbone wrapped in silver wire. It is proof, prison, and accusation all at once.',
   tags: ['proof', 'ritual'],
+  iconAssetId: 'forest',
+  consumable: false,
   visible: true,
 }
 
@@ -361,7 +345,7 @@ const storySchema: StorySchema = {
     'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
     'All story material and style guidance must remain original and generic, without named protected references.',
   ],
-  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Barrow Crypt', 'Graymere Hall', 'grave spade', 'grave ash', 'iron nails', 'royal writ', 'the lich'],
+  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Barrow Crypt', 'Graymere Hall', 'Shovel', 'Grave Ash', 'Iron Nails', 'Sealed Writ', 'the lich'],
   player: {
     id: 'tamsin',
     name: 'Tamsin',
@@ -554,17 +538,17 @@ const storySchema: StorySchema = {
         },
         {
           id: 'inspect-writ',
-          label: 'Study the royal writ for what it can force open',
+          label: 'Study the Sealed Writ for what it can force open',
           optionSummary: 'Look for practical authority the writ grants before leaving the hall.',
           writerIntent: 'Offer an investigative alternative that treats royal authority as a tool, not a feeling.',
-          actionPrompt: 'The selected option is to study the royal writ for practical access, demands, and obligations it can create.',
+          actionPrompt: 'The selected option is to study the Sealed Writ for practical access, demands, and obligations it can create.',
           mode: 'act',
           tone: 'investigative',
           skillTags: ['grave-lore'],
           consequenceHint: 'The writ becomes a practical key for frightened gates and stubborn officials.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
-            { type: 'remember', text: 'The royal writ can demand shelter, testimony, and access to sealed roads.' },
+            { type: 'remember', text: 'The Sealed Writ can demand shelter, testimony, and access to sealed roads.' },
             { type: 'revealNode', nodeId: 'old-watchtower' },
             { type: 'moveToNode', nodeId: 'old-watchtower' },
           ],
@@ -646,10 +630,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'show-writ',
-          label: 'Show the royal writ and ask for the first opened grave',
+          label: 'Show the Sealed Writ and ask for the first opened grave',
           optionSummary: 'Use official authority to focus the exchange on a concrete lead.',
           writerIntent: 'Offer an authority-backed investigative option that may create distrust but gains direction.',
-          actionPrompt: 'The selected option is to show the royal writ as authority to demand a path to the first disturbed grave.',
+          actionPrompt: 'The selected option is to show the Sealed Writ as authority to demand a path to the first disturbed grave.',
           mode: 'ask',
           tone: 'investigative',
           requiresItemId: 'royal-writ',
@@ -680,7 +664,7 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'seal-cellar-with-nails',
-          label: 'Use iron nails to hold the cellar shut',
+          label: 'Use Iron Nails to hold the cellar shut',
           optionSummary: 'Spend the nails to buy time and control the rescue.',
           writerIntent: 'Offer a careful item-use option that trades inventory for safety.',
           actionPrompt: 'The selected option is to brace the cellar door with coffin nails and coordinate when the people below should move.',
@@ -697,10 +681,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'throw-grave-ash',
-          label: 'Throw grave ash into the nearest dead face',
+          label: 'Throw Grave Ash into the nearest dead face',
           optionSummary: 'Spend the ash for a fast opening, accepting that close work may hurt.',
           writerIntent: 'Offer a risky item-use option with a clear cost.',
-          actionPrompt: 'The selected option is to spend grave ash to blind the nearest corpse long enough to open the root cellar.',
+          actionPrompt: 'The selected option is to spend Grave Ash to blind the nearest corpse long enough to open the root cellar.',
           mode: 'use-item',
           tone: 'reckless',
           skillTags: ['grave-lore'],
@@ -709,7 +693,7 @@ const storySchema: StorySchema = {
           effects: [
             { type: 'loseItem', itemId: 'grave-ash' },
             { type: 'damage', amount: 2, reason: 'The dead clawed close while the cellar opened.' },
-            { type: 'remember', text: 'Grave ash can blind the dead, but only for moments.' },
+            { type: 'remember', text: 'Grave Ash can blind the dead, but only for moments.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
         },
@@ -720,7 +704,7 @@ const storySchema: StorySchema = {
       name: 'The tower keeps an ugly rite',
       weight: 5,
       iconAssetId: 'codex',
-      prompt: 'A hermit at the old watchtower claims the lich can be stopped only if its bone charm is found and the burial bell is made whole.',
+      prompt: 'A hermit at the old watchtower claims the lich can be stopped only if its Bone Charm is found and the burial bell is made whole.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'old-perrin',
@@ -729,7 +713,7 @@ const storySchema: StorySchema = {
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         voice: 'rasping, blunt, fond of ugly truths',
         want: 'Convince Tamsin that courage without a rite will only add a fresh body to the lich’s host.',
-        knows: 'The lich hides its soul in a bone charm near a silver burial bell, and the bell lacks its clapper.',
+        knows: 'The lich hides its soul in a Bone Charm near a silver burial bell, and the bell lacks its clapper.',
       },
       choices: [
         {
@@ -744,7 +728,7 @@ const storySchema: StorySchema = {
           consequenceHint: 'The hermit respects a bargain with edges and gives her the missing clapper.',
           effects: [
             { type: 'gainItem', item: bellClapper },
-            { type: 'remember', text: 'The burial bell must be made whole before the bone charm can be broken.' },
+            { type: 'remember', text: 'The burial bell must be made whole before the Bone Charm can be broken.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -759,7 +743,7 @@ const storySchema: StorySchema = {
           skillTags: ['grave-lore'],
           consequenceHint: 'The marks confirm the rite and show where the barrow path begins.',
           effects: [
-            { type: 'remember', text: 'The barrow rite binds bell, bone charm, and grave name together.' },
+            { type: 'remember', text: 'The barrow rite binds bell, Bone Charm, and grave name together.' },
             { type: 'revealNode', nodeId: 'barrow-crypt' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
@@ -776,10 +760,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'mark-safe-path',
-          label: 'Mark a quiet path with the grave spade',
-          optionSummary: 'Use the spade as a practical tool to test ground and choose a safer route.',
+          label: 'Mark a quiet path with the Shovel',
+          optionSummary: 'Use the shovel as a practical tool to test ground and choose a safer route.',
           writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
-          actionPrompt: 'The selected option is to use the grave spade to test soft earth and mark a path where the mist lies thinnest.',
+          actionPrompt: 'The selected option is to use the Shovel to test soft earth and mark a path where the mist lies thinnest.',
           mode: 'use-item',
           tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
@@ -840,10 +824,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'trade-knife-for-passage',
-          label: 'Trade the armory knife for quiet passage',
+          label: 'Trade the Armory Knife for quiet passage',
           optionSummary: 'Give up a useful object to avoid violence and keep moving.',
           writerIntent: 'Offer a careful inventory trade that avoids a fight.',
-          actionPrompt: 'The selected option is to trade the armory knife for passage without a fight.',
+          actionPrompt: 'The selected option is to trade the Armory Knife for passage without a fight.',
           mode: 'use-item',
           tone: 'careful',
           requiresItemId: 'armory-knife',
@@ -858,7 +842,7 @@ const storySchema: StorySchema = {
     },
     {
       id: 'bone-charm-glimpse',
-      name: 'The bone charm shows itself',
+      name: 'The Bone Charm shows itself',
       weight: 4,
       iconAssetId: 'keep',
       prompt: 'The lich turns toward its ritual, revealing a fingerbone charm threaded with silver wire beneath its robes.',
@@ -866,10 +850,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'hook-charm-with-spade',
-          label: 'Hook the bone charm with the grave spade',
+          label: 'Hook the Bone Charm with the Shovel',
           optionSummary: 'Use reach and leverage to take the charm without barehanded contact.',
           writerIntent: 'Offer a risky tool-use option with a health cost.',
-          actionPrompt: 'The selected option is to use the grave spade to hook the bone charm away from the lich without touching it barehanded.',
+          actionPrompt: 'The selected option is to use the Shovel to hook the Bone Charm away from the lich without touching it barehanded.',
           mode: 'use-item',
           tone: 'reckless',
           skillTags: ['steady-hands'],
@@ -878,7 +862,7 @@ const storySchema: StorySchema = {
           effects: [
             { type: 'gainItem', item: boneCharm },
             { type: 'damage', amount: 2, reason: 'The lich’s cold bit through the spade haft.' },
-            { type: 'remember', text: 'The bone charm is the lich’s anchor and proof of its ending.' },
+            { type: 'remember', text: 'The Bone Charm is the lich’s anchor and proof of its ending.' },
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
         },
@@ -910,10 +894,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'restore-bell-and-break-charm',
-          label: 'Restore the bell and break the bone charm',
+          label: 'Restore the bell and break the Bone Charm',
           optionSummary: 'Complete the ritual mechanism and use it against the lich’s host.',
           writerIntent: 'Offer the strongest prepared ritual solution for players who found the clapper.',
-          actionPrompt: 'The selected option is to set the silver clapper into the burial bell, ring the ritual, and break the bone charm as the dead turn toward the sound.',
+          actionPrompt: 'The selected option is to set the Silver Bell Clapper into the burial bell, ring the ritual, and break the Bone Charm as the dead turn toward the sound.',
           mode: 'use-item',
           tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
@@ -1543,7 +1527,7 @@ function formatPlayerSheet(player: PlayableCharacter) {
 Role: ${player.role}
 Health: ${player.health.current}/${player.health.max}
 Visible inventory: ${player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
-Skill tags: ${player.skillTags.join(', ')}
+Internal skill tags: ${player.skillTags.join(', ')}
 Public presentation: ${player.voice.publicStyle}
 Authorial constraints: fear of ${player.voice.fear}; wants ${player.voice.desire}; contradiction: ${player.voice.contradiction}
 Origin: ${player.backstory.origin}
@@ -2171,7 +2155,6 @@ function PlayerPanel({ state, currentObjective }: { state: CampaignState; curren
   const player = state.player
   const activeNpcId = state.currentEvent?.npcTemplate?.id
   const healthPercent = Math.max(0, Math.min(100, Math.round((player.health.current / player.health.max) * 100)))
-  const visibleInventory = player.inventory.filter((item) => item.visible)
 
   return (
     <Card className="iff-chrome-panel">
@@ -2195,16 +2178,6 @@ function PlayerPanel({ state, currentObjective }: { state: CampaignState; curren
         <section className="border-t border-foreground pt-3" aria-live="polite">
           <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Objective</h3>
           <p className="mt-1 font-serif text-sm leading-6 text-foreground">{currentObjective}</p>
-        </section>
-
-        <section className="border-t border-foreground pt-3">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Inventory</h3>
-            <span className="font-sans text-xs text-muted-foreground">{visibleInventory.length} carried</span>
-          </div>
-          <ul className="mt-2 list-inside list-disc font-serif text-sm leading-6 text-muted-foreground">
-            {visibleInventory.map((item) => <li key={item.id} title={item.description}>{item.name}</li>)}
-          </ul>
         </section>
 
         {state.storyNpcs.length > 0 ? (
@@ -2309,33 +2282,42 @@ function ChoicePanel({
   )
 }
 
-function ItemTagBadge({ tag }: { tag: string }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const definition = itemTagDefinitions[tag] ?? {
-    label: tag,
-    summary: 'A notable quality of this item.',
-    detail: 'Its usefulness depends on the choices available in the current scene.',
-  }
-
+function InventoryItemCard({
+  item,
+  selected,
+  onSelect,
+}: {
+  item: InventoryItem
+  selected: boolean
+  onSelect: (itemId: string) => void
+}) {
   return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        className="inline-flex items-center border border-foreground px-2.5 py-0.5 font-sans text-xs font-semibold capitalize text-foreground transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground"
-        title={`${definition.summary} ${definition.detail}`}
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((value) => !value)}
-      >
-        {definition.label}
-      </button>
-      {isOpen ? (
-        <span className="absolute left-0 top-full z-20 mt-2 w-72 border border-foreground bg-popover p-3 text-left text-popover-foreground shadow-none">
-          <span className="block font-sans text-xs font-semibold uppercase tracking-[0.12em]">{definition.label}</span>
-          <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{definition.summary}</span>
-          <span className="mt-2 block font-serif text-sm leading-6">{definition.detail}</span>
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={() => onSelect(item.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect(item.id)
+        }
+      }}
+      className="group flex min-h-28 flex-col gap-3 border border-foreground bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted sm:aspect-square sm:min-h-0 sm:p-4"
+    >
+      <span className="flex items-center gap-3">
+        <StoryIcon id={item.iconAssetId ?? 'codex'} label={item.name} className="size-12 sm:size-10" />
+        <span className="block min-w-0 text-base font-semibold leading-5 text-foreground">{item.name}</span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-serif text-sm leading-6 text-muted-foreground sm:max-h-24 sm:overflow-hidden">{item.description}</span>
+      </span>
+      {item.consumable ? (
+        <span className="flex flex-wrap gap-2">
+          <span className="inline-flex border border-foreground px-2.5 py-0.5 font-sans text-xs font-semibold text-foreground">Consumable</span>
         </span>
       ) : null}
-    </span>
+    </div>
   )
 }
 
@@ -2483,7 +2465,7 @@ function CharacterPanel({
         <CardTitle className="text-2xl">Character</CardTitle>
         <CardDescription className="font-serif">Tamsin, her condition, and what she carries.</CardDescription>
       </CardHeader>
-      <CardContent className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <CardContent className="min-h-0 flex-1">
         <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-foreground bg-background p-5 lg:max-h-none">
           <div className="flex items-start gap-4">
             <span className="inline-flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border border-foreground bg-background">
@@ -2507,46 +2489,36 @@ function CharacterPanel({
           <div>
             <h5 className="text-sm font-medium">Strengths</h5>
             <div className="mt-2 flex flex-wrap gap-2">
-              {state.player.skillTags.map((skill) => (
-                <Badge key={skill} variant="outline">
-                  {skill}
-                </Badge>
-              ))}
+              {state.player.skillTags.map((skill) => {
+                const definition = skillTagDefinitions[skill]
+
+                return (
+                  <Badge key={skill} variant="outline" title={definition?.summary ?? skill}>
+                    {definition?.label ?? skill}
+                  </Badge>
+                )
+              })}
             </div>
           </div>
 
           <Separator />
 
           <div>
-            <h4 className="text-xl font-semibold">Inventory</h4>
-            {selectedItem ? (
-              <div className="mt-3 border-l border-foreground pl-3">
-                <h5 className="text-base font-semibold">{selectedItem.name}</h5>
-                <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{selectedItem.description}</p>
-                {selectedItem.tags && selectedItem.tags.length > 0 ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {selectedItem.tags.map((tag) => <ItemTagBadge key={tag} tag={tag} />)}
-                  </div>
-                ) : null}
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-xl font-semibold">Inventory</h4>
+              <span className="font-sans text-xs text-muted-foreground">{visibleInventory.length} carried</span>
+            </div>
+            {visibleInventory.length > 0 ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleInventory.map((item) => (
+                  <InventoryItemCard key={item.id} item={item} selected={selectedItem?.id === item.id} onSelect={onSelectItem} />
+                ))}
               </div>
             ) : (
               <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">Tamsin is carrying no visible keepsakes right now.</p>
             )}
           </div>
         </section>
-
-        <aside className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-3 overflow-y-auto border border-foreground bg-background p-4 lg:max-h-none">
-          <h4 className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Carried items</h4>
-          {visibleInventory.length > 0 ? (
-            visibleInventory.map((item) => (
-              <Button key={item.id} type="button" variant={selectedItem?.id === item.id ? 'secondary' : 'outline'} className="justify-start" onClick={() => onSelectItem(item.id)}>
-                {item.name}
-              </Button>
-            ))
-          ) : (
-            <p className="font-serif text-sm leading-6 text-muted-foreground">No visible items.</p>
-          )}
-        </aside>
       </CardContent>
     </Card>
   )
