@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SearchIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1498,7 +1498,7 @@ function ChoiceModeIcon({ mode }: { mode: ChoiceMode }) {
   const icons = {
     act: HandIcon,
     say: MessageCircleIcon,
-    ask: SearchIcon,
+    ask: MessageCircleQuestionIcon,
     'use-item': PackageIcon,
     risk: TriangleAlertIcon,
     wait: ClockIcon,
@@ -3136,10 +3136,10 @@ function App() {
               ) : null}
 
               <Tabs defaultValue="story" className="flex min-h-0 flex-1 flex-col gap-3">
-                <TabsList className="shrink-0">
-                  <TabsTrigger value="story"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
-                  <TabsTrigger value="map"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
-                  <TabsTrigger value="character"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
+                <TabsList className="shrink-0 border border-[var(--color-border-subtle)] bg-[var(--color-surface)]">
+                  <TabsTrigger value="story" className="inline-flex items-center gap-2"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
+                  <TabsTrigger value="map" className="inline-flex items-center gap-2"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
+                  <TabsTrigger value="character" className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
                 </TabsList>
                 <TabsContent value="story" className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
