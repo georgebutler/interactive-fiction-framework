@@ -233,6 +233,10 @@ const codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>
   Czerwonbród: { type: 'place', targetId: 'ash-farms' },
 }
 
+const codexTermSummaries: Record<string, string> = {
+  'the lich': 'The deathless ruler beneath Kurhan Crypt, raising the dead through stolen burial rites, old commands, and a Bone Charm that anchors its power.',
+}
+
 const storyIconAssets: Record<StoryIconId, string> = {
   lantern: '/icons/ffffff/transparent/1x1/delapouite/old-lantern.svg',
   road: '/icons/ffffff/transparent/1x1/delapouite/horizon-road.svg',
@@ -1592,7 +1596,21 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function getPlayerCodexSummary(player: PlayableCharacter) {
+  return `${player.name} is ${player.role.toLowerCase()}, ${player.backstory.origin.charAt(0).toLowerCase()}${player.backstory.origin.slice(1)} She wants to survive, put the dead back down, and make the king reckon with what his orders cost.`
+}
+
+function getNpcCodexSummary(person: StoryNpcTemplate) {
+  return `${person.name} is ${person.role.toLowerCase()}. ${person.description} Wants: ${person.want}`
+}
+
 function getCodexReferenceSummary(reference: CodexReference) {
+  const explicitSummary = codexTermSummaries[reference.term.toLowerCase()]
+
+  if (explicitSummary) {
+    return explicitSummary
+  }
+
   if (reference.type === 'place' && reference.targetId) {
     return getNode(reference.targetId).description
   }
@@ -1603,8 +1621,12 @@ function getCodexReferenceSummary(reference: CodexReference) {
   }
 
   if (reference.type === 'person') {
+    if (reference.targetId === storySchema.player.id || reference.term.toLowerCase() === storySchema.player.name.toLowerCase()) {
+      return getPlayerCodexSummary(storySchema.player)
+    }
+
     const person = reference.targetId ? storySchema.events.map((event) => event.npcTemplate).find((npc) => npc?.id === reference.targetId) : undefined
-    return person?.description ?? 'A known figure in the current story record.'
+    return person ? getNpcCodexSummary(person) : `${reference.term} is a named person in Tamsin’s story; their role and loyalties are still emerging through play.`
   }
 
   return `${reference.term} is part of the current story codex.`
@@ -1833,7 +1855,7 @@ Rules:
 
 function StoryIcon({ id, label, className = '' }: { id: StoryIconId; label: string; className?: string }) {
   return (
-    <span className={`inline-flex size-8 shrink-0 items-center justify-center border border-foreground bg-foreground ${className}`} aria-hidden="true">
+    <span className={`inline-flex size-8 shrink-0 items-center justify-center border border-[var(--color-border)] bg-foreground ${className}`} aria-hidden="true">
       <img src={storyIconAssets[id]} alt="" className="size-4 object-contain invert" />
       <span className="sr-only">{label}</span>
     </span>
@@ -1945,7 +1967,7 @@ function FeedBlock({
 
   const renderedLines = lines.length > 0 ? lines : [entry.streaming ? 'The next passage is taking shape…' : 'Continue to reveal the next line.']
   const blockClassName = entry.kind === 'dialogue'
-    ? 'border-l border-foreground bg-muted/60 px-4 py-3'
+    ? 'border-l border-[var(--color-border)] bg-muted/60 px-4 py-3'
     : entry.kind === 'selected'
       ? 'font-sans text-sm font-normal leading-6 text-muted-foreground'
       : entry.kind === 'error'
@@ -2130,14 +2152,14 @@ function ThreeMapNode({
       <SphereGeometryNode color={color} />
       {!node.selected ? (
         <Html position={[0, 0.86, 0]} center style={{ pointerEvents: 'none', width: 'max-content' }}>
-          <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-foreground text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
+          <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-[var(--color-border)] text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
             {node.label}
           </span>
         </Html>
       ) : null}
       {node.selected ? (
         <Html position={[0, 1.48, 0]} center style={{ pointerEvents: 'auto', width: 'max-content' }}>
-          <div role="dialog" aria-label={`${node.label} details`} className="w-56 max-w-[70vw] border border-foreground bg-background p-2.5 text-foreground shadow-none">
+          <div role="dialog" aria-label={`${node.label} details`} className="w-56 max-w-[70vw] border border-[var(--color-border)] bg-background p-2.5 text-foreground shadow-none">
             <div className="flex items-start justify-between gap-3">
               <h3 className="min-w-0 truncate font-serif text-base leading-tight">{node.label}</h3>
               {node.explored || node.current ? <MapNodeTypeBadge nodeType={node.nodeType} /> : null}
@@ -2303,7 +2325,7 @@ function StatusStrip({
           {visibleInventory.map((item) => (
             <span key={item.id} className="group relative inline-flex">
               <Badge variant="secondary">{item.name}</Badge>
-              <span className="pointer-events-none absolute left-0 top-full mt-2 hidden w-72 border border-foreground bg-popover p-3 text-popover-foreground group-hover:block group-focus-within:block">
+              <span className="pointer-events-none absolute left-0 top-full mt-2 hidden w-72 border border-[var(--color-border)] bg-popover p-3 text-popover-foreground group-hover:block group-focus-within:block">
                 <span className="block font-sans text-xs font-semibold uppercase tracking-[0.14em]">{item.name}</span>
                 <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
                 {item.tags?.length ? <span className="mt-2 block font-sans text-xs text-muted-foreground">Tags: {item.tags.join(', ')}</span> : null}
@@ -2313,7 +2335,7 @@ function StatusStrip({
           </div>
         </DialogContent>
       </Dialog>
-      {toast ? <div className="absolute right-3 top-full mt-2 border border-foreground bg-background px-3 py-2 font-sans text-xs shadow-none">{toast}</div> : null}
+      {toast ? <div className="absolute right-3 top-full mt-2 border border-[var(--color-border)] bg-background px-3 py-2 font-sans text-xs shadow-none">{toast}</div> : null}
     </section>
   )
 }
@@ -2342,7 +2364,7 @@ function ChoicePanel({
 
     return (
       <Card className="iff-chrome-panel">
-        <CardContent className="py-4">
+        <CardContent>
           <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full font-serif text-base">
             {canContinue ? 'Turn the page' : 'Setting the next line…'}
           </Button>
@@ -2358,7 +2380,7 @@ function ChoicePanel({
   if (!state.sceneOpened || !state.currentEvent) {
     return (
       <Card className="iff-chrome-panel">
-        <CardContent className="py-4">
+        <CardContent>
           <Button type="button" size="lg" onClick={onBeginScene} disabled={isAdvancing} className="w-full font-serif text-base">
             <PlayIcon data-icon="inline-start" />
             {isAdvancing ? 'Preparing the scene…' : 'Begin scene'}
@@ -2374,7 +2396,7 @@ function ChoicePanel({
   return (
     <Card className="iff-chrome-panel">
       <CardHeader className="pb-3">
-        <CardTitle className="font-[var(--font-display)] text-3xl font-light">Next</CardTitle>
+        <CardTitle className="font-[var(--font-display)] text-3xl font-light">What will {state.player.name} do next?</CardTitle>
         <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
       </CardHeader>
       <Separator />
@@ -2438,7 +2460,7 @@ function InventoryItemCard({
           onSelect(item.id)
         }
       }}
-      className="group flex w-full items-start gap-3 border border-foreground bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted"
+      className="group flex w-full items-start gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted"
     >
       <StoryIcon id={item.iconAssetId ?? 'codex'} label={item.name} className="size-11 shrink-0" />
       <span className="block min-w-0 flex-1">
@@ -2446,7 +2468,7 @@ function InventoryItemCard({
         <span className="mt-1 block truncate font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
         {item.consumable ? (
           <span className="mt-2 flex flex-wrap gap-1.5">
-            <span className="inline-flex border border-foreground/70 px-1.5 py-0.5 font-sans text-[0.6rem] font-semibold uppercase tracking-wider text-muted-foreground">Consumable</span>
+            <span className="inline-flex border border-[var(--color-border-strong)] px-1.5 py-0.5 font-sans text-[0.6rem] font-semibold uppercase tracking-wider text-muted-foreground">Consumable</span>
           </span>
         ) : null}
       </span>
@@ -2473,9 +2495,9 @@ function CharacterPanel({
         <CardDescription className="font-serif">Tamsin, her condition, and what she carries.</CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
-        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-foreground bg-background p-5 lg:max-h-none">
+        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-[var(--color-border)] bg-background p-5 lg:max-h-none">
           <div className="flex items-start gap-4">
-            <span className="inline-flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border border-foreground bg-background">
+            <span className="inline-flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border border-[var(--color-border)] bg-background">
               <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
             </span>
             <div>
@@ -2545,7 +2567,7 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
           <div className="flex flex-col gap-3 pr-3">
             {entries.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No diagnostic entries yet.</p> : null}
             {entries.map((entry) => (
-              <article key={entry.id} className="border border-foreground bg-muted p-3">
+              <article key={entry.id} className="border border-[var(--color-border)] bg-muted p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <Badge variant="outline">{entry.label ?? 'Trace'}</Badge>
                   <span className="text-xs text-muted-foreground">Turn {entry.turn}</span>
@@ -2573,7 +2595,7 @@ function StorySelectionScreen({ onSelect }: { onSelect: () => void }) {
           <CardDescription className="font-serif text-base leading-7">{storySchema.premise}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="border border-foreground bg-background p-4">
+          <div className="border border-[var(--color-border)] bg-background p-4">
             <p className="ui-label">Protagonist</p>
             <p className="mt-2 font-serif text-lg">{storySchema.player.name}, {storySchema.player.role}</p>
           </div>
@@ -2599,14 +2621,14 @@ function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
           <CardDescription className="font-serif text-base leading-7">{player.role}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]">
-          <img src={player.portraitAsset} alt="" className="h-44 w-32 border border-foreground object-cover" />
+          <img src={player.portraitAsset} alt="" className="h-44 w-32 border border-[var(--color-border)] object-cover" />
           <div className="flex flex-col gap-4">
             <p className="font-serif text-base leading-7 text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary">HP {player.health.current}/{player.health.max}</Badge>
               {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
             </div>
-            <div className="border-l border-foreground pl-3">
+            <div className="border-l border-[var(--color-border)] pl-3">
               <p className="ui-label">Opening memory</p>
               <p className="mt-1 font-serif text-sm leading-6">{player.memory[0]}</p>
             </div>
@@ -2633,7 +2655,7 @@ function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: 
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Badge variant="secondary">Total turns: {state.turn}</Badge>
-          <details className="border border-foreground bg-background p-4">
+          <details className="border border-[var(--color-border)] bg-background p-4">
             <summary className="cursor-pointer font-sans text-sm font-semibold uppercase tracking-[0.14em]">Review your journey</summary>
             <div className="mt-3 flex flex-col gap-2">
               {choices.map((entry) => (
@@ -3141,7 +3163,7 @@ function App() {
               ) : null}
 
               <Tabs defaultValue="story" className="flex min-h-0 flex-1 flex-col gap-3">
-                <TabsList className="shrink-0 border border-[var(--color-border-subtle)] bg-[var(--color-surface)]">
+                <TabsList className="shrink-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
                   <TabsTrigger value="story" className="inline-flex items-center gap-2"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
                   <TabsTrigger value="map" className="inline-flex items-center gap-2"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
                   <TabsTrigger value="character" className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
@@ -3152,7 +3174,7 @@ function App() {
                       <div className="min-w-0">
                         <p className="ui-label">Current location</p>
                         <CardTitle className="mt-1 font-[var(--font-display)] text-4xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
-                        <CardDescription className="mt-2 max-w-3xl font-serif text-base leading-7">{currentNode.description}</CardDescription>
+                        <CardDescription className="mt-2 w-full max-w-none font-serif text-sm leading-6">{currentNode.description}</CardDescription>
                       </div>
                     </CardHeader>
                     <aside className="iff-objective-card -mt-4 border-b border-[var(--color-border)] bg-muted px-4 py-3 font-serif text-sm leading-6" aria-live="polite">
@@ -3171,7 +3193,7 @@ function App() {
                       </ScrollArea>
                     </CardContent>
                   </Card>
-                  <section aria-label="Next actions" className="mt-4 shrink-0">
+                  <section aria-label="Next actions" className="shrink-0">
                     <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
                   </section>
                 </TabsContent>
@@ -3194,7 +3216,7 @@ function App() {
                   <CardDescription className="font-serif">Manage the session. Technical details stay tucked away.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex max-w-2xl flex-col gap-4">
-                  <section className="border border-foreground bg-background p-4">
+                  <section className="border border-[var(--color-border)] bg-background p-4">
                     <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
                     <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Restart the adventure from the beginning whenever you want a clean road.</p>
                     <Button type="button" variant="outline" className="mt-3" onClick={resetCampaign} disabled={isAdvancing}>
@@ -3211,7 +3233,7 @@ function App() {
                   </Button>
 
                   {advancedOpen ? (
-                    <section className="flex flex-col gap-3 border border-foreground bg-background p-4">
+                    <section className="flex flex-col gap-3 border border-[var(--color-border)] bg-background p-4">
                       <label className="flex flex-col gap-1.5 text-sm font-medium">
                         Service endpoint
                         <Input value={llmSettings.endpoint} onChange={(event) => setLlmSettings((settings) => ({ ...settings, endpoint: event.target.value }))} />
@@ -3219,7 +3241,7 @@ function App() {
                       <label className="flex flex-col gap-1.5 text-sm font-medium">
                         Runtime model
                         {availableModels.length > 0 ? (
-                          <select className="border border-foreground bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))}>
+                          <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))}>
                             {availableModels.map((model) => <option key={model} value={model}>{model}</option>)}
                           </select>
                         ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />}
