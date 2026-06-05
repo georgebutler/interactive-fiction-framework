@@ -52,15 +52,15 @@ type PlayableCharacter = {
   color: string
   health: Health
   inventory: InventoryItem[]
-  skillTags: string[]
+  skillTags: SkillTag[]
   voice: PlayerVoice
   backstory: PlayerBackstory
   memory: string[]
 }
 
 type StoryIconId = 'lantern' | 'road' | 'crossroads' | 'codex' | 'keep' | 'forest'
-type ChoiceTone = 'direct' | 'careful' | 'empathetic' | 'investigative' | 'reckless' | 'reflective'
-type ChoiceMode = 'act' | 'say' | 'ask' | 'use-item' | 'risk' | 'wait'
+type SkillTag = 'grave-lore' | 'plain-speech' | 'steady-hands'
+type StoryChoiceMode = 'act' | 'say' | 'ask' | 'use-item' | 'risk' | 'wait'
 type StoryNodeType = 'origin' | 'settlement' | 'road' | 'wilds' | 'watch' | 'crypt' | 'court' | 'ritual' | 'hazard' | 'mystery'
 
 type StoryEffect =
@@ -76,14 +76,15 @@ type StoryEffect =
 type StoryChoice = {
   id: string
   label: string
-  optionSummary?: string
-  writerIntent?: string
+  mode: StoryChoiceMode
+  skillTags: SkillTag[]
+  requiresItem?: string
+  /** @promptOnly — never render this */
+  writerIntent: string
+  /** @promptOnly — never render this */
+  neutralSummary: string
+  /** @promptOnly — never render this */
   actionPrompt: string
-  mode: ChoiceMode
-  tone: ChoiceTone
-  skillTags?: string[]
-  requiresItemId?: string
-  consequenceHint?: string
   effects?: StoryEffect[]
 }
 
@@ -136,6 +137,7 @@ type UnfinishedBusiness = {
 
 type StoryExit = {
   toNodeId: string
+  direction?: string
   label?: string
   hiddenUntilExplored?: boolean
   blocker?: TravelBlocker
@@ -250,7 +252,7 @@ const storyIconAssets: Record<StoryIconId, string> = {
 // Fra Filippo Lippi, "Portrait of a Woman with a Man at a Casement", object 436896.
 const publicDomainPortraitAsset = '/portraits/fra-filippo-lippi-portrait-public-domain.jpg'
 
-const skillTagDefinitions: Record<string, { label: string; summary: string }> = {
+const skillTagDefinitions: Record<SkillTag, { label: string; summary: string }> = {
   'grave-lore': {
     label: 'Burial Knowledge',
     summary: 'Knows grave customs, burial signs, and how the dead are meant to rest.',
@@ -541,13 +543,11 @@ const storySchema: StorySchema = {
         {
           id: 'make-king-name-cost',
           label: 'Make the king name what he is asking of you',
-          optionSummary: 'Press for plain accountability instead of accepting the order silently.',
+          neutralSummary: 'You pressed for plain accountability instead of accepting the order silently.',
           writerIntent: 'Offer a direct social option that challenges power without choosing exact words for the player.',
           actionPrompt: 'The selected option is to press King Osric to speak plainly about sending a gravedigger where trained knights failed.',
           mode: 'ask',
-          tone: 'direct',
           skillTags: ['plain-speech'],
-          consequenceHint: 'The king resents the question but gives clearer information about the road east.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
             { type: 'remember', text: 'King Osric admitted the old barrow beyond Blackpine Road may be where the dead are being stirred.' },
@@ -558,13 +558,11 @@ const storySchema: StorySchema = {
         {
           id: 'inspect-writ',
           label: 'Study the Sealed Writ for what it can open',
-          optionSummary: 'Look for practical authority the writ grants before leaving the hall.',
+          neutralSummary: 'You looked for the practical authority the writ granted before leaving the hall.',
           writerIntent: 'Offer an investigative alternative that treats royal authority as a tool, not a feeling.',
           actionPrompt: 'The selected option is to study the Sealed Writ for practical access, demands, and obligations it can create.',
           mode: 'act',
-          tone: 'investigative',
           skillTags: ['grave-lore'],
-          consequenceHint: 'The writ becomes a practical key for frightened gates and stubborn officials.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
             { type: 'remember', text: 'The Sealed Writ can demand shelter, testimony, and access to closed roads.' },
@@ -585,13 +583,11 @@ const storySchema: StorySchema = {
         {
           id: 'demand-usable-iron',
           label: 'Demand usable iron before leaving',
-          optionSummary: 'Turn the bad equipment into a public problem the clerk has to answer.',
+          neutralSummary: 'You turned the bad equipment into a public problem the clerk had to answer.',
           writerIntent: 'Give the player a forceful speech-intent option that improves preparation.',
           actionPrompt: 'The selected option is to press the armory clerk for gear that will not fail at the first dead hand.',
           mode: 'say',
-          tone: 'direct',
           skillTags: ['plain-speech'],
-          consequenceHint: 'The clerk yields something small but honest rather than keep arguing in public.',
           effects: [
             { type: 'gainItem', item: betterKnife },
             { type: 'remember', text: 'Tamsin forced the armory to admit the first weapon was meant for someone disposable.' },
@@ -601,13 +597,11 @@ const storySchema: StorySchema = {
         {
           id: 'salvage-spear-head',
           label: 'Salvage the spearhead and leave the shaft behind',
-          optionSummary: 'Take the only useful part and avoid giving the clerk another opening to posture.',
+          neutralSummary: 'You took the only useful part and avoided giving the clerk another opening to posture.',
           writerIntent: 'Offer a quiet practical option that converts bad gear into a useful item.',
           actionPrompt: 'The selected option is to strip useful iron from the broken spear and leave the useless shaft behind.',
           mode: 'act',
-          tone: 'careful',
           skillTags: ['steady-hands'],
-          consequenceHint: 'The court barely notices, but Tamsin leaves with a piece of iron she can trust.',
           effects: [
             { type: 'gainItem', item: crackedSpearHead },
             { type: 'moveToNode', nodeId: 'old-watchtower' },
@@ -635,13 +629,11 @@ const storySchema: StorySchema = {
         {
           id: 'answer-with-truth',
           label: 'Answer him with the truth you can afford',
-          optionSummary: 'Give a limited honest answer and leave room for what is still unknown.',
+          neutralSummary: 'You gave a limited honest answer and left room for what was still unknown.',
           writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
           actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
           mode: 'say',
-          tone: 'empathetic',
           skillTags: ['plain-speech'],
-          consequenceHint: 'Honesty does not comfort him, but it gives him a reason to share what he heard.',
           effects: [
             { type: 'remember', text: 'A bell rang beneath the hill before the Ash Farms graves opened.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
@@ -650,13 +642,12 @@ const storySchema: StorySchema = {
         {
           id: 'show-writ',
           label: 'Show the Sealed Writ and ask for the first opened grave',
-          optionSummary: 'Use official authority to focus the exchange on a concrete lead.',
+          neutralSummary: 'You used official authority to focus the exchange on a concrete lead.',
           writerIntent: 'Offer an authority-backed investigative option that may create distrust but gains direction.',
           actionPrompt: 'The selected option is to show the Sealed Writ as authority to demand a path to the first disturbed grave.',
           mode: 'ask',
-          tone: 'investigative',
-          requiresItemId: 'royal-writ',
-          consequenceHint: 'The farmer distrusts the seal but points her toward the first sign.',
+          skillTags: ['grave-lore'],
+          requiresItem: 'royal-writ',
           effects: [
             { type: 'remember', text: 'The first opened grave at Ash Farms belonged to a bell-ringer buried without his clapper.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
@@ -684,14 +675,12 @@ const storySchema: StorySchema = {
         {
           id: 'seal-cellar-with-nails',
           label: 'Use Iron Nails to hold the cellar shut',
-          optionSummary: 'Spend the nails to buy time and control the rescue.',
+          neutralSummary: 'You spent the nails to buy time and control the rescue.',
           writerIntent: 'Offer a careful item-use option that trades inventory for safety.',
           actionPrompt: 'The selected option is to brace the cellar door with coffin nails and coordinate when the people below should move.',
           mode: 'use-item',
-          tone: 'careful',
           skillTags: ['steady-hands'],
-          requiresItemId: 'iron-nails',
-          consequenceHint: 'The nails buy enough time to pull the trapped man free without drawing every corpse at once.',
+          requiresItem: 'iron-nails',
           effects: [
             { type: 'loseItem', itemId: 'iron-nails' },
             { type: 'remember', text: 'Miller Joan saw a corpse in royal colors among the dead from the east.' },
@@ -701,14 +690,12 @@ const storySchema: StorySchema = {
         {
           id: 'throw-grave-ash',
           label: 'Throw Holy Water into the nearest dead face',
-          optionSummary: 'Spend the ash for a fast opening, accepting that close work may hurt.',
+          neutralSummary: 'You spent the Holy Water for a fast opening, accepting that close work might hurt.',
           writerIntent: 'Offer a risky item-use option with a clear cost.',
           actionPrompt: 'The selected option is to spend Holy Water to slow the nearest corpse long enough to open the root cellar.',
           mode: 'use-item',
-          tone: 'reckless',
           skillTags: ['grave-lore'],
-          requiresItemId: 'grave-ash',
-          consequenceHint: 'The ash works, but close work among the dead leaves bruises and torn skin.',
+          requiresItem: 'grave-ash',
           effects: [
             { type: 'loseItem', itemId: 'grave-ash' },
             { type: 'damage', amount: 2, reason: 'The dead clawed close while the cellar opened.' },
@@ -738,13 +725,11 @@ const storySchema: StorySchema = {
         {
           id: 'trade-for-rite',
           label: 'Trade plain answers for the burial custom',
-          optionSummary: 'Treat the hermit as a bargainer and exchange facts for useful instructions.',
+          neutralSummary: 'You treated the hermit as a bargainer and exchanged facts for useful instructions.',
           writerIntent: 'Offer a direct social option that rewards candor with practical burial knowledge.',
           actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
           mode: 'say',
-          tone: 'direct',
           skillTags: ['plain-speech'],
-          consequenceHint: 'The hermit respects a bargain with edges and gives her the missing clapper.',
           effects: [
             { type: 'gainItem', item: bellClapper },
             { type: 'remember', text: 'The burial bell may matter because the dead began walking after its clapper went missing.' },
@@ -754,13 +739,11 @@ const storySchema: StorySchema = {
         {
           id: 'read-the-tower-marks',
           label: 'Read the burial marks carved into the tower stair',
-          optionSummary: 'Rely on physical evidence instead of the hermit’s performance.',
+          neutralSummary: 'You relied on physical evidence instead of the hermit’s performance.',
           writerIntent: 'Offer an investigative option that uses the protagonist’s grave knowledge.',
           actionPrompt: 'The selected option is to study the old burial marks carved into the tower stairwell for usable instructions.',
           mode: 'act',
-          tone: 'investigative',
           skillTags: ['grave-lore'],
-          consequenceHint: 'The marks confirm the burial custom and show where the barrow path begins.',
           effects: [
             { type: 'remember', text: 'The barrow marks link the bell, a fingerbone token, and the old names of the buried dead.' },
             { type: 'revealNode', nodeId: 'barrow-crypt' },
@@ -780,14 +763,12 @@ const storySchema: StorySchema = {
         {
           id: 'mark-safe-path',
           label: "Mark a quiet path with Tamsin's Shovel",
-          optionSummary: "Use Tamsin's Shovel as a practical tool to test ground and choose a safer route.",
+          neutralSummary: "You used Tamsin's Shovel as a practical tool to test ground and choose a safer route.",
           writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
           actionPrompt: "The selected option is to use Tamsin's Shovel to test soft earth and mark a path where the mist lies thinnest.",
           mode: 'use-item',
-          tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
-          requiresItemId: 'grave-spade',
-          consequenceHint: 'The route avoids the worst of the listening dead.',
+          requiresItem: 'grave-spade',
           effects: [
             { type: 'remember', text: 'The mist thickens around disturbed royal dead.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
@@ -796,12 +777,11 @@ const storySchema: StorySchema = {
         {
           id: 'run-through-mist',
           label: 'Run before the mist closes',
-          optionSummary: 'Trade safety for speed before the dead fully gather.',
+          neutralSummary: 'You traded safety for speed before the dead fully gathered.',
           writerIntent: 'Offer a high-risk option with health cost and fast movement.',
           actionPrompt: 'The selected option is to choose speed over silence and break through the mist before the dead fully gather.',
           mode: 'risk',
-          tone: 'reckless',
-          consequenceHint: 'She reaches the barrow road, but the mist takes its price from her breath and skin.',
+          skillTags: ['steady-hands'],
           effects: [
             { type: 'damage', amount: 3, reason: 'The cold mist burned where it touched living skin.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
@@ -829,13 +809,11 @@ const storySchema: StorySchema = {
         {
           id: 'show-royal-dead-truth',
           label: 'Tell the deserters what walks in royal colors',
-          optionSummary: 'Use the deserters’ own fear and experience to make the roadblock feel pointless.',
+          neutralSummary: 'You used the deserters’ own fear and experience to make the roadblock feel pointless.',
           writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
           actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
           mode: 'say',
-          tone: 'direct',
           skillTags: ['plain-speech'],
-          consequenceHint: 'The deserters do not become kind, but they stop blocking the road.',
           effects: [
             { type: 'remember', text: 'The royal dead may be walking first because old commands still cling to them.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
@@ -844,13 +822,12 @@ const storySchema: StorySchema = {
         {
           id: 'trade-knife-for-passage',
           label: 'Trade the Armory Knife for quiet passage',
-          optionSummary: 'Give up a useful object to avoid violence and keep moving.',
+          neutralSummary: 'You gave up a useful object to avoid violence and keep moving.',
           writerIntent: 'Offer a careful inventory trade that avoids a fight.',
           actionPrompt: 'The selected option is to trade the Armory Knife for passage without a fight.',
           mode: 'use-item',
-          tone: 'careful',
-          requiresItemId: 'armory-knife',
-          consequenceHint: 'The deserters accept the trade and point out the safest turn toward the barrows.',
+          skillTags: ['plain-speech'],
+          requiresItem: 'armory-knife',
           effects: [
             { type: 'loseItem', itemId: 'armory-knife' },
             { type: 'heal', amount: 1, reason: 'Avoiding the fight preserves strength.' },
@@ -870,14 +847,12 @@ const storySchema: StorySchema = {
         {
           id: 'hook-charm-with-spade',
           label: "Hook the Bone Token with Tamsin's Shovel",
-          optionSummary: 'Use reach and leverage to take the charm without barehanded contact.',
+          neutralSummary: 'You used reach and leverage to take the charm without barehanded contact.',
           writerIntent: 'Offer a risky tool-use option with a health cost.',
           actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Token away from the dead man without touching it barehanded.",
           mode: 'use-item',
-          tone: 'reckless',
           skillTags: ['steady-hands'],
-          requiresItemId: 'grave-spade',
-          consequenceHint: 'The token comes free, but the corpse’s cold tears at Tamsin as it passes.',
+          requiresItem: 'grave-spade',
           effects: [
             { type: 'gainItem', item: boneCharm },
             { type: 'damage', amount: 2, reason: 'The corpse’s cold bit through the spade haft.' },
@@ -888,13 +863,11 @@ const storySchema: StorySchema = {
         {
           id: 'speak-burial-name',
           label: 'Speak the burial name and reach for the token',
-          optionSummary: 'Use the burial name to make the dead pause, then take the opening it creates.',
+          neutralSummary: 'You used the burial name to make the dead pause, then took the opening it created.',
           writerIntent: 'Offer a reflective burial-knowledge option without inventing exact spoken words.',
           actionPrompt: 'The selected option is to invoke the burial name and reach for the token while the dead man hesitates.',
           mode: 'say',
-          tone: 'reflective',
           skillTags: ['grave-lore'],
-          consequenceHint: 'The name stills the dead long enough for Tamsin to take proof.',
           effects: [
             { type: 'gainItem', item: boneCharm },
             { type: 'remember', text: 'Naming the dead can slow them when the old burial customs still hold.' },
@@ -914,14 +887,12 @@ const storySchema: StorySchema = {
         {
           id: 'restore-bell-and-break-charm',
           label: 'Restore the bell and break the Bone Token',
-          optionSummary: 'Make the burial bell whole and use it to turn the dead away.',
+          neutralSummary: 'You made the burial bell whole and used it to turn the dead away.',
           writerIntent: 'Offer the strongest prepared burial-custom solution for players who found the clapper.',
           actionPrompt: 'The selected option is to set the Silver Bell Clapper into the burial bell, ring it, and break the Bone Token as the dead turn toward the sound.',
           mode: 'use-item',
-          tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
-          requiresItemId: 'bell-clapper',
-          consequenceHint: 'The custom takes hold because the bell is whole and the token is exposed.',
+          requiresItem: 'bell-clapper',
           effects: [
             { type: 'gainItem', item: boneCharm },
             { type: 'remember', text: 'The burial bell rang whole, and the dead lost whatever command held them upright.' },
@@ -932,13 +903,12 @@ const storySchema: StorySchema = {
         {
           id: 'bind-crypt-with-iron',
           label: 'Bar the barrow door with scavenged iron',
-          optionSummary: 'Use scavenged iron to hold the door when a clean ending is not available.',
+          neutralSummary: 'You used scavenged iron to hold the door when a clean ending was not available.',
           writerIntent: 'Offer a costly fallback that can still carry the story forward.',
           actionPrompt: 'The selected option is to use every available scrap of iron to bar the barrow door long enough to escape with proof.',
           mode: 'use-item',
-          tone: 'reckless',
-          requiresItemId: 'cracked-spear-head',
-          consequenceHint: 'The binding is brutal and temporary, but it buys a path back to the king with evidence.',
+          skillTags: ['steady-hands'],
+          requiresItem: 'cracked-spear-head',
           effects: [
             { type: 'loseItem', itemId: 'cracked-spear-head' },
             { type: 'damage', amount: 4, reason: 'The barrow fought back with dead hands and falling stone.' },
@@ -959,13 +929,12 @@ const storySchema: StorySchema = {
         {
           id: 'lay-proof-before-king',
           label: 'Lay the proof before the king and make him look',
-          optionSummary: 'Use the carried evidence to force public acknowledgment.',
+          neutralSummary: 'You used the carried evidence to force public acknowledgment.',
           writerIntent: 'Offer a direct ending option focused on accountability and proof.',
           actionPrompt: 'The selected option is to lay the proof before King Osric and force public acknowledgment of the order’s cost.',
           mode: 'act',
-          tone: 'direct',
-          requiresItemId: 'bone-charm',
-          consequenceHint: 'The court understands the dead were not only rumor because Tamsin brought back proof from the barrow.',
+          skillTags: ['plain-speech'],
+          requiresItem: 'bone-charm',
           effects: [
             { type: 'remember', text: 'Tamsin returned with proof and made the king look at what his command cost.' },
             { type: 'setFlag', flag: 'proof-delivered', value: true },
@@ -974,12 +943,11 @@ const storySchema: StorySchema = {
         {
           id: 'demand-names-read',
           label: 'Demand the names of the dead be read before reward',
-          optionSummary: 'Make witness and remembrance the price of any royal gratitude.',
+          neutralSummary: 'You made witness and remembrance the price of any royal gratitude.',
           writerIntent: 'Offer a reflective ending option that centers the dead rather than reward.',
           actionPrompt: 'The selected option is to refuse reward until the names of the raised and reburied dead are read aloud in the hall.',
           mode: 'say',
-          tone: 'reflective',
-          consequenceHint: 'The court resists the discomfort, but the story ends with witness instead of pageantry.',
+          skillTags: ['grave-lore', 'plain-speech'],
           effects: [
             { type: 'remember', text: 'Tamsin demanded witness for the dead before accepting any royal gratitude.' },
             { type: 'setFlag', flag: 'proof-delivered', value: true },
@@ -1373,8 +1341,8 @@ function getTravelDisabledReason(state: CampaignState, nodeId: string) {
 }
 
 function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
-  if (choice.requiresItemId && !hasInventoryItem(state.player, choice.requiresItemId)) {
-    const knownItem = allKnownItems.find((item) => item.id === choice.requiresItemId)
+  if (choice.requiresItem && !hasInventoryItem(state.player, choice.requiresItem)) {
+    const knownItem = allKnownItems.find((item) => item.id === choice.requiresItem)
     return `Requires: ${knownItem?.name ?? 'a missing item'}`
   }
 
@@ -1391,7 +1359,6 @@ function getAvailableChoices(state: CampaignState) {
 
 function getChoiceVarietyWarnings(event: StoryEvent) {
   const modes = new Set(event.choices.map((choice) => choice.mode))
-  const tones = new Set(event.choices.map((choice) => choice.tone))
   const warnings: string[] = []
 
   if (event.choices.length < 3) {
@@ -1400,10 +1367,6 @@ function getChoiceVarietyWarnings(event: StoryEvent) {
 
   if (modes.size < Math.min(2, event.choices.length)) {
     warnings.push(`${event.name} options do not vary by action mode.`)
-  }
-
-  if (tones.size < Math.min(2, event.choices.length)) {
-    warnings.push(`${event.name} options do not vary by tone.`)
   }
 
   return warnings
@@ -1453,8 +1416,8 @@ function getEffectBadge(effect: StoryEffect) {
   }
 }
 
-function getChoiceModeBadge(mode: ChoiceMode) {
-  const labels: Record<ChoiceMode, string> = {
+function getStoryChoiceModeBadge(mode: StoryChoiceMode) {
+  const labels: Record<StoryChoiceMode, string> = {
     act: 'ACT',
     say: 'SAY',
     ask: 'ASK',
@@ -1466,8 +1429,8 @@ function getChoiceModeBadge(mode: ChoiceMode) {
   return labels[mode]
 }
 
-function getChoiceModeColor(mode: ChoiceMode) {
-  const colors: Record<ChoiceMode, string> = {
+function getStoryChoiceModeColor(mode: StoryChoiceMode) {
+  const colors: Record<StoryChoiceMode, string> = {
     say: 'var(--color-say)',
     ask: 'var(--color-ask)',
     act: 'var(--color-act)',
@@ -1479,7 +1442,7 @@ function getChoiceModeColor(mode: ChoiceMode) {
   return colors[mode]
 }
 
-function ChoiceModeIcon({ mode }: { mode: ChoiceMode }) {
+function StoryChoiceModeIcon({ mode }: { mode: StoryChoiceMode }) {
   const icons = {
     act: HandIcon,
     say: MessageCircleIcon,
@@ -1487,7 +1450,7 @@ function ChoiceModeIcon({ mode }: { mode: ChoiceMode }) {
     'use-item': PackageIcon,
     risk: TriangleAlertIcon,
     wait: ClockIcon,
-  } satisfies Record<ChoiceMode, typeof HandIcon>
+  } satisfies Record<StoryChoiceMode, typeof HandIcon>
   const Icon = icons[mode]
 
   return <Icon className="size-3" aria-hidden="true" />
@@ -1726,12 +1689,55 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
 const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
 const playerAgencyRule = 'Do not write the player character’s private thoughts, feelings, doubts, motives, exact speech, or unchosen actions. Only frame, resolve, or respond to the selected option as stated.'
 const groundedMedievalRule = 'For texture, favor grounded medieval hardship, plain names, practical social friction, and simple burial customs; do not copy or evoke any specific external work.'
+const gameMasterNarratorFrame = `You are a Game Master narrating a living world. You write in second person, present tense.
+You describe only what the player character can perceive right now — what they see, hear, smell, and feel in this exact moment. You never summarise past events or skip ahead. You never write the player character's thoughts, decisions, or dialogue. Every passage should end with the world in a state of tension — something unresolved, a detail that demands attention, or a choice that feels urgent. You respect the world's fixed rules absolutely: locations are fixed, exits are fixed, NPCs behave consistently with their established nature. You do not invent new locations, new exits, or new factions. If an authored choice leads to a consequence, you narrate that consequence viscerally and concretely. Keep passages to 120–180 words.`
+const directionWords = ['north', 'south', 'east', 'west', 'up', 'down', 'left', 'right', 'through', 'across'] as const
+
+function getExitDirection(exit: StoryExit) {
+  return exit.direction ?? exit.label ?? `Route to ${getNode(exit.toNodeId).publicName}`
+}
+
+function buildWorldTopologyBlock(state: CampaignState) {
+  const currentNode = getNode(state.currentNodeId)
+  const exits = getNodeExits(currentNode)
+  const exitSummaries = exits.map((exit) => `${getExitDirection(exit)} → ${exit.toNodeId}`)
+  const blockedExitSummaries = exits
+    .map((exit) => {
+      const blockedReason = getTravelBlockerReason(state, exit)
+      return blockedReason ? `${getExitDirection(exit)} → ${exit.toNodeId}: ${blockedReason}` : undefined
+    })
+    .filter(Boolean)
+  const adjacentLocationNames = exits.map((exit) => getNode(exit.toNodeId).publicName)
+
+  return `--- WORLD TOPOLOGY (DO NOT CONTRADICT) ---
+Current location: ${currentNode.name}
+Exits from here: ${exitSummaries.join(', ') || 'None'}
+Blocked exits: ${blockedExitSummaries.join(', ') || 'None'}
+Adjacent locations you may reference by name only: ${adjacentLocationNames.join(', ') || 'None'}
+Locations that do not exist in this world: you must not invent any.
+---`
+}
+
+function getValidExitDirectionWords(state: CampaignState) {
+  const currentNode = getNode(state.currentNodeId)
+  const exitText = getNodeExits(currentNode).map((exit) => getExitDirection(exit).toLowerCase()).join(' ')
+
+  return new Set(directionWords.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i').test(exitText)))
+}
+
+function getInvalidGeneratedDirections(state: CampaignState, text: string) {
+  const validDirections = getValidExitDirectionWords(state)
+
+  return directionWords.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i').test(text) && !validDirections.has(word))
+}
 
 function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   const node = getNode(state.currentNodeId)
   const sceneNpcs = state.storyNpcs.filter((npc) => npc.currentNodeId === state.currentNodeId || npc.introducedByEventId === event.id)
 
-  return `You are the narrator of an original literary interactive fiction scene.
+  return `${gameMasterNarratorFrame}
+
+${buildWorldTopologyBlock(state)}
 
 Story: ${storySchema.title}
 Current place: ${node.publicName}
@@ -1750,7 +1756,6 @@ ${formatCodexContext(state)}
 Write only visible story text. No JSON. No markdown heading.
 Rules:
 - Describe only externally available scene details: surroundings, NPC behavior, physical pressure, sensory facts, and immediate stakes.
-- Short beats, one beat per line.
 - Make the situation concrete and leave room for the player to choose from the authored options.
 - Do not write dialogue for the player character.
 - Do not decide the player's action.
@@ -1766,22 +1771,23 @@ Rules:
 function buildPlayerActionResolutionPrompt(state: CampaignState, event: StoryEvent, choice: StoryChoice, effects: StoryEffect[]) {
   const node = getNode(state.currentNodeId)
 
-  return `Resolve the player's chosen action as original literary interactive fiction.
+  return `${gameMasterNarratorFrame}
+
+${buildWorldTopologyBlock(state)}
+
+Resolve the player's chosen action as original interactive fiction.
 
 Current place: ${node.publicName}
 Current scene: ${event.name}
 Scene pressure: ${event.prompt}
 Player character:
 ${formatPlayerSheet(state.player)}
-Selected option:
-Label: ${choice.label}
-Mode: ${choice.mode}
-Intent: ${choice.actionPrompt}
-Writer intent: ${choice.writerIntent ?? 'Use only the selected option and authored consequence hint.'}
-Tone: ${choice.tone}
-Relevant skill color: ${choice.skillTags?.join(', ') || 'none'}
-Authored consequence hint:
-${choice.consequenceHint ?? 'Follow the current pressure and the hard effects below.'}
+Game Master direction from contributor-only choice fields:
+Writer intent: ${choice.writerIntent}
+Neutral summary: ${choice.neutralSummary}
+Action prompt: ${choice.actionPrompt}
+Player-facing mode: ${choice.mode}
+Player-facing skill color: ${choice.skillTags.join(', ') || 'none'}
 Hard state effects handled by code:
 ${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
 Recent visible story:
@@ -1792,7 +1798,6 @@ ${formatCodexContext(state)}
 Write visible prose only. No JSON. No markdown heading.
 Rules:
 - Resolve only the selected option.
-- Short beats, one beat per line.
 - Do not add unselected motives, regrets, memories, emotions, thoughts, or private conclusions for the player character.
 - Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
 - If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
@@ -1806,7 +1811,11 @@ Rules:
 function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: StoryNpc, choice: StoryChoice, resolutionText: string) {
   const node = getNode(state.currentNodeId)
 
-  return `Write one visible NPC response in an original interactive fiction scene.
+  return `${gameMasterNarratorFrame}
+
+${buildWorldTopologyBlock(state)}
+
+Write one visible NPC response in an original interactive fiction scene.
 
 NPC: ${npc.name} (${npc.role})
 Description: ${npc.description}
@@ -1815,7 +1824,10 @@ Want: ${npc.want}
 Knows: ${npc.knows}
 Current place: ${node.publicName}
 Scene: ${event.name} — ${event.prompt}
-Selected option: ${choice.actionPrompt}
+Game Master direction from contributor-only choice fields:
+Writer intent: ${choice.writerIntent}
+Neutral summary: ${choice.neutralSummary}
+Action prompt: ${choice.actionPrompt}
 Resolution so far:
 ${resolutionText}
 Compact story memory:
@@ -1823,7 +1835,6 @@ ${formatCodexContext(state)}
 
 Write only ${npc.name}'s visible response. No JSON. No markdown heading.
 Rules:
-- Short beats, one beat per line.
 - Use ${npc.name}'s actual name followed by a colon. Never write the literal label "Name:".
 - React to the selected option and the NPC's own want.
 - Do not invent exact dialogue, private thoughts, motives, or additional actions for the player character.
@@ -2394,22 +2405,28 @@ function ChoicePanel({
           const disabled = Boolean(disabledReason) || isAdvancing
           const needsConfirm = choiceNeedsConfirmation(choice, state.player)
           const confirming = confirmingChoiceId === choice.id
-          const summaryId = `${choice.id}-summary`
           const disabledId = `${choice.id}-disabled-reason`
-          const describedBy = [choice.optionSummary ? summaryId : undefined, disabledReason ? disabledId : undefined].filter(Boolean).join(' ') || undefined
-          const modeColor = getChoiceModeColor(choice.mode)
+          const describedBy = disabledReason ? disabledId : undefined
+          const modeColor = getStoryChoiceModeColor(choice.mode)
 
           return (
-            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.consequenceHint ?? choice.optionSummary ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
+            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
               <span className="absolute bottom-0 left-0 top-0 w-[3px]" style={{ backgroundColor: modeColor }} />
               <span className="block">
                 <span className="mb-1.5 inline-flex items-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60" style={{ color: modeColor }}>
-                  <ChoiceModeIcon mode={choice.mode} />
-                  {getChoiceModeBadge(choice.mode)}
+                  <StoryChoiceModeIcon mode={choice.mode} />
+                  {getStoryChoiceModeBadge(choice.mode)}
                 </span>
                 <span className="mb-1 block text-sm font-medium leading-snug text-[var(--color-text)]">{confirming ? `Confirm: ${choice.label}` : choice.label}</span>
-                {choice.optionSummary ? <span id={summaryId} className="mb-2 block text-xs leading-relaxed text-[var(--color-text-muted)]">{choice.optionSummary}</span> : null}
-                {choice.consequenceHint ? <span className="block border-t border-[var(--color-border-subtle)] pt-2 text-xs italic leading-relaxed text-[var(--color-text-dim)]">{choice.consequenceHint}</span> : null}
+                {choice.skillTags.length > 0 ? (
+                  <span className="flex flex-wrap gap-1.5">
+                    {choice.skillTags.map((skill) => (
+                      <span key={skill} className="border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
+                        {skillTagDefinitions[skill].label}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
                 {disabledReason ? <span id={disabledId} className="mt-2 block text-xs font-medium text-[var(--color-text-muted)]">{disabledReason}</span> : null}
                 {needsConfirm && confirming ? (
                   <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
@@ -2867,6 +2884,22 @@ function App() {
     return id
   }
 
+  const appendDirectionLintWarning = (stateAtGeneration: CampaignState, text: string, turn: number, label: string) => {
+    const invalidDirections = getInvalidGeneratedDirections(stateAtGeneration, text)
+
+    if (invalidDirections.length === 0) {
+      return
+    }
+
+    const currentNode = getNode(stateAtGeneration.currentNodeId)
+    const validExitDirections = Array.from(getValidExitDirectionWords(stateAtGeneration))
+    appendDebugEntry({
+      turn,
+      label: 'World topology warning',
+      text: `${label} mentioned direction word(s) not present in exits from ${currentNode.publicName}: ${invalidDirections.join(', ')}. Valid direction words here: ${validExitDirections.join(', ') || 'none'}.`,
+    })
+  }
+
   const openSceneFromState = async (stateAtStart: CampaignState, leadingFeedEntries: Array<Omit<FeedEntry, 'id'>> = []) => {
     if (isAdvancing || stateAtStart.outcome !== 'running') {
       return
@@ -2914,7 +2947,8 @@ function App() {
         appendDebugEntry({ turn, label: 'Choice variety warnings', text: varietyWarnings.join('\n') })
       }
 
-      await streamFeedEntry(currentNarratorEntryId, prompt)
+      const openingText = await streamFeedEntry(currentNarratorEntryId, prompt)
+      appendDirectionLintWarning(sceneState, openingText, turn, 'Scene opening')
       updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
@@ -3000,18 +3034,19 @@ function App() {
         speaker: 'Your choice',
         nodeId: node.id,
         eventId: event.id,
-        text: `You decided to ${choice.label.charAt(0).toLowerCase()}${choice.label.slice(1)}.`,
+        text: choice.neutralSummary,
       })
       appendDebugEntry({
         turn,
         label: 'Selected choice',
-        text: `${choice.label}\nMode: ${choice.mode}\nTone: ${choice.tone}\nWriter intent: ${choice.writerIntent ?? 'None provided.'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
+        text: `${choice.label}\nMode: ${choice.mode}\nSkill tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
       })
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
       appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
       const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
+      appendDirectionLintWarning(stateAtStart, resolutionText, turn, 'Choice resolution')
       updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: effects.map(getEffectBadge), streaming: false }))
 
       let updatedStoryNpcs = stateAtStart.storyNpcs
@@ -3020,6 +3055,7 @@ function App() {
         appendDebugEntry({ turn, label: 'NPC prompt', text: npcPrompt })
         const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
         const npcTurn = await streamFeedEntry(npcEntryId, npcPrompt)
+        appendDirectionLintWarning(stateAtStart, npcTurn, turn, 'NPC response')
         updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
         updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcTurn].slice(-8) } : npc))
       }
