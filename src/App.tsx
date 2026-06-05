@@ -61,6 +61,7 @@ type PlayableCharacter = {
 type StoryIconId = 'lantern' | 'road' | 'crossroads' | 'codex' | 'keep' | 'forest'
 type SkillTag = 'grave-lore' | 'plain-speech' | 'steady-hands'
 type StoryChoiceMode = 'act' | 'say' | 'ask' | 'use-item' | 'risk' | 'wait'
+type StoryChoiceDisplayStyle = 'action' | 'dialogue' | 'passive'
 type StoryNodeType = 'origin' | 'settlement' | 'road' | 'wilds' | 'watch' | 'crypt' | 'court' | 'ritual' | 'hazard' | 'mystery'
 
 type StoryEffect =
@@ -77,6 +78,7 @@ type StoryChoice = {
   id: string
   label: string
   mode: StoryChoiceMode
+  displayStyle: StoryChoiceDisplayStyle
   skillTags: SkillTag[]
   requiresItem?: string
   /** @promptOnly — never render this */
@@ -148,6 +150,7 @@ type StoryNode = {
   name: string
   publicName: string
   description: string
+  explorationHint?: string
   iconAssetId: StoryIconId
   nodeType: StoryNodeType
   exits: StoryExit[]
@@ -170,6 +173,11 @@ type StorySchema = {
   goalNodeId: string
   maxTurns: number
   designNote: string
+  /**
+   * Each string is one world law, written as a prohibition or absolute fact.
+   * Example: "The dead cannot speak unless the lich wills it."
+   * Example: "King Osric's word is law. No NPC defies him openly."
+   */
   fixedRules: string[]
   codexTerms: string[]
   player: PlayableCharacter
@@ -180,9 +188,14 @@ type StorySchema = {
 type FeedEntry = {
   id: string
   turn: number
-  kind: 'narration' | 'dialogue' | 'selected' | 'consequence' | 'system' | 'error'
+  kind: 'narration' | 'dialogue' | 'selected' | 'consequence' | 'system' | 'location' | 'error'
   speaker?: string
   text: string
+  content?: {
+    name: string
+    nodeType: StoryNodeType
+    turn: number
+  }
   generatedText?: string
   revealMode?: 'immediate' | 'animated'
   animationSkipped?: boolean
@@ -397,11 +410,12 @@ const storySchema: StorySchema = {
       name: 'Graymere Yard',
       publicName: 'Graymere Hall',
       description: 'The muddy seat of King Osric, where limewashed walls, wet rushes, and polished orders make the roads sound cleaner than they are.',
+      explorationHint: 'Mud-dark roads lead away from the hall under a low sky.',
       iconAssetId: 'road',
       nodeType: 'origin',
       exits: [
-        { toNodeId: 'ash-farms', label: 'Follow the opened graves' },
-        { toNodeId: 'old-watchtower', label: 'Take the high road toward the old tower' },
+        { toNodeId: 'ash-farms', direction: 'west', label: 'Follow the opened graves' },
+        { toNodeId: 'old-watchtower', direction: 'east', label: 'Take the high road toward the old tower' },
       ],
       unfinishedBusiness: [
         {
@@ -425,12 +439,13 @@ const storySchema: StorySchema = {
       name: 'Ash Farms',
       publicName: 'Ash Farms',
       description: 'Sickly fields outside Redvale, where fresh graves keep opening and farmers count names under their breath.',
+      explorationHint: 'A rutted farm road sinks into fields and grave-cold mist.',
       iconAssetId: 'crossroads',
       nodeType: 'settlement',
       exits: [
-        { toNodeId: 'graymere-yard', label: 'Return to the king’s road' },
-        { toNodeId: 'blackpine-road', label: 'Follow the grave-road into the pines' },
-        { toNodeId: 'old-watchtower', label: 'Cut across the high fields' },
+        { toNodeId: 'graymere-yard', direction: 'east', label: 'Return to the king’s road' },
+        { toNodeId: 'blackpine-road', direction: 'north', label: 'Follow the grave-road into the pines' },
+        { toNodeId: 'old-watchtower', direction: 'northeast', label: 'Cut across the high fields' },
       ],
       nextNodeIds: ['graymere-yard', 'blackpine-road', 'old-watchtower'],
       mapPosition: { x: 180, y: 385 },
@@ -445,13 +460,14 @@ const storySchema: StorySchema = {
       name: 'Old Watchtower',
       publicName: 'Old Watchtower',
       description: 'A leaning hill tower where bad maps, old burial customs, and worse advice have survived the weather.',
+      explorationHint: 'A high path climbs toward broken stone and old warning marks.',
       iconAssetId: 'codex',
       nodeType: 'watch',
       exits: [
-        { toNodeId: 'graymere-yard', label: 'Descend toward Graymere Hall' },
-        { toNodeId: 'ash-farms', label: 'Cross back toward the fields' },
-        { toNodeId: 'blackpine-road', label: 'Take the marked road under the pines' },
-        { toNodeId: 'barrow-crypt', label: 'Follow the tower map toward the barrow' },
+        { toNodeId: 'graymere-yard', direction: 'west', label: 'Descend toward Graymere Hall' },
+        { toNodeId: 'ash-farms', direction: 'southwest', label: 'Cross back toward the fields' },
+        { toNodeId: 'blackpine-road', direction: 'northwest', label: 'Take the marked road under the pines' },
+        { toNodeId: 'barrow-crypt', direction: 'north', label: 'Follow the tower map toward the barrow' },
       ],
       nextNodeIds: ['graymere-yard', 'ash-farms', 'blackpine-road', 'barrow-crypt'],
       mapPosition: { x: 420, y: 385 },
@@ -466,12 +482,13 @@ const storySchema: StorySchema = {
       name: 'Blackpine Road',
       publicName: 'Blackpine Road',
       description: 'A cramped forest road where split carts lean under black pines and cold mist hangs low over the ruts.',
+      explorationHint: 'Black pines crowd a road where cold fog swallows wheel ruts.',
       iconAssetId: 'forest',
       nodeType: 'hazard',
       exits: [
-        { toNodeId: 'ash-farms', label: 'Return by the farm track' },
-        { toNodeId: 'old-watchtower', label: 'Climb back toward the tower' },
-        { toNodeId: 'barrow-crypt', label: 'Press through the mist' },
+        { toNodeId: 'ash-farms', direction: 'south', label: 'Return by the farm track' },
+        { toNodeId: 'old-watchtower', direction: 'southeast', label: 'Climb back toward the tower' },
+        { toNodeId: 'barrow-crypt', direction: 'north', label: 'Press through the mist' },
       ],
       nextNodeIds: ['ash-farms', 'old-watchtower', 'barrow-crypt'],
       mapPosition: { x: 285, y: 250 },
@@ -486,13 +503,15 @@ const storySchema: StorySchema = {
       name: 'Old Barrow',
       publicName: 'Old Barrow',
       description: 'A buried hall under the hill, cold with old bones, a cracked bell, and signs that someone has been using the dead.',
+      explorationHint: 'A grass-swallowed mound waits ahead with stone teeth showing.',
       iconAssetId: 'keep',
       nodeType: 'crypt',
       exits: [
-        { toNodeId: 'old-watchtower', label: 'Retreat by the tower path' },
-        { toNodeId: 'blackpine-road', label: 'Return through Blackpine Road' },
+        { toNodeId: 'old-watchtower', direction: 'south', label: 'Retreat by the tower path' },
+        { toNodeId: 'blackpine-road', direction: 'southwest', label: 'Return through Blackpine Road' },
         {
           toNodeId: 'king-return',
+          direction: 'east',
           label: 'Return to court with proof',
           blocker: {
             id: 'proof-required',
@@ -514,9 +533,10 @@ const storySchema: StorySchema = {
       name: 'King Return',
       publicName: 'Graymere Hall Return',
       description: 'The return to King Osric, where survival must become proof and proof must become a sentence.',
+      explorationHint: 'Torch smoke and court noise gather beyond the road back.',
       iconAssetId: 'lantern',
       nodeType: 'court',
-      exits: [{ toNodeId: 'barrow-crypt', label: 'Go back toward the barrow road' }],
+      exits: [{ toNodeId: 'barrow-crypt', direction: 'west', label: 'Go back toward the barrow road' }],
       nextNodeIds: ['barrow-crypt'],
       mapPosition: { x: 470, y: 65 },
       eventWeights: [{ eventId: 'royal-proof', weight: 10 }],
@@ -547,6 +567,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a direct social option that challenges power without choosing exact words for the player.',
           actionPrompt: 'The selected option is to press King Osric to speak plainly about sending a gravedigger where trained knights failed.',
           mode: 'ask',
+          displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
@@ -562,6 +583,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer an investigative alternative that treats royal authority as a tool, not a feeling.',
           actionPrompt: 'The selected option is to study the Sealed Writ for practical access, demands, and obligations it can create.',
           mode: 'act',
+          displayStyle: 'action',
           skillTags: ['grave-lore'],
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
@@ -587,6 +609,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Give the player a forceful speech-intent option that improves preparation.',
           actionPrompt: 'The selected option is to press the armory clerk for gear that will not fail at the first dead hand.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
           effects: [
             { type: 'gainItem', item: betterKnife },
@@ -601,6 +624,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a quiet practical option that converts bad gear into a useful item.',
           actionPrompt: 'The selected option is to strip useful iron from the broken spear and leave the useless shaft behind.',
           mode: 'act',
+          displayStyle: 'action',
           skillTags: ['steady-hands'],
           effects: [
             { type: 'gainItem', item: crackedSpearHead },
@@ -633,6 +657,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
           actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
           effects: [
             { type: 'remember', text: 'A bell rang beneath the hill before the Ash Farms graves opened.' },
@@ -646,6 +671,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer an authority-backed investigative option that may create distrust but gains direction.',
           actionPrompt: 'The selected option is to show the Sealed Writ as authority to demand a path to the first disturbed grave.',
           mode: 'ask',
+          displayStyle: 'dialogue',
           skillTags: ['grave-lore'],
           requiresItem: 'royal-writ',
           effects: [
@@ -679,6 +705,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a careful item-use option that trades inventory for safety.',
           actionPrompt: 'The selected option is to brace the cellar door with coffin nails and coordinate when the people below should move.',
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['steady-hands'],
           requiresItem: 'iron-nails',
           effects: [
@@ -694,6 +721,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a risky item-use option with a clear cost.',
           actionPrompt: 'The selected option is to spend Holy Water to slow the nearest corpse long enough to open the root cellar.',
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['grave-lore'],
           requiresItem: 'grave-ash',
           effects: [
@@ -729,6 +757,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a direct social option that rewards candor with practical burial knowledge.',
           actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
           effects: [
             { type: 'gainItem', item: bellClapper },
@@ -743,6 +772,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer an investigative option that uses the protagonist’s grave knowledge.',
           actionPrompt: 'The selected option is to study the old burial marks carved into the tower stairwell for usable instructions.',
           mode: 'act',
+          displayStyle: 'action',
           skillTags: ['grave-lore'],
           effects: [
             { type: 'remember', text: 'The barrow marks link the bell, a fingerbone token, and the old names of the buried dead.' },
@@ -767,6 +797,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
           actionPrompt: "The selected option is to use Tamsin's Shovel to test soft earth and mark a path where the mist lies thinnest.",
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['grave-lore', 'steady-hands'],
           requiresItem: 'grave-spade',
           effects: [
@@ -781,6 +812,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a high-risk option with health cost and fast movement.',
           actionPrompt: 'The selected option is to choose speed over silence and break through the mist before the dead fully gather.',
           mode: 'risk',
+          displayStyle: 'action',
           skillTags: ['steady-hands'],
           effects: [
             { type: 'damage', amount: 3, reason: 'The cold mist burned where it touched living skin.' },
@@ -813,6 +845,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
           actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
           effects: [
             { type: 'remember', text: 'The royal dead may be walking first because old commands still cling to them.' },
@@ -826,6 +859,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a careful inventory trade that avoids a fight.',
           actionPrompt: 'The selected option is to trade the Armory Knife for passage without a fight.',
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['plain-speech'],
           requiresItem: 'armory-knife',
           effects: [
@@ -851,6 +885,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a risky tool-use option with a health cost.',
           actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Token away from the dead man without touching it barehanded.",
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['steady-hands'],
           requiresItem: 'grave-spade',
           effects: [
@@ -867,6 +902,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a reflective burial-knowledge option without inventing exact spoken words.',
           actionPrompt: 'The selected option is to invoke the burial name and reach for the token while the dead man hesitates.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['grave-lore'],
           effects: [
             { type: 'gainItem', item: boneCharm },
@@ -891,6 +927,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer the strongest prepared burial-custom solution for players who found the clapper.',
           actionPrompt: 'The selected option is to set the Silver Bell Clapper into the burial bell, ring it, and break the Bone Token as the dead turn toward the sound.',
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['grave-lore', 'steady-hands'],
           requiresItem: 'bell-clapper',
           effects: [
@@ -907,6 +944,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a costly fallback that can still carry the story forward.',
           actionPrompt: 'The selected option is to use every available scrap of iron to bar the barrow door long enough to escape with proof.',
           mode: 'use-item',
+          displayStyle: 'action',
           skillTags: ['steady-hands'],
           requiresItem: 'cracked-spear-head',
           effects: [
@@ -933,6 +971,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a direct ending option focused on accountability and proof.',
           actionPrompt: 'The selected option is to lay the proof before King Osric and force public acknowledgment of the order’s cost.',
           mode: 'act',
+          displayStyle: 'action',
           skillTags: ['plain-speech'],
           requiresItem: 'bone-charm',
           effects: [
@@ -947,6 +986,7 @@ const storySchema: StorySchema = {
           writerIntent: 'Offer a reflective ending option that centers the dead rather than reward.',
           actionPrompt: 'The selected option is to refuse reward until the names of the raised and reburied dead are read aloud in the hall.',
           mode: 'say',
+          displayStyle: 'dialogue',
           skillTags: ['grave-lore', 'plain-speech'],
           effects: [
             { type: 'remember', text: 'Tamsin demanded witness for the dead before accepting any royal gratitude.' },
@@ -994,8 +1034,25 @@ const initialState: CampaignState = {
   outcome: 'running',
 }
 
+initialState.feed.unshift({ id: 'opening-location', ...createLocationFeedEntry(getNode('graymere-yard'), 1) })
+
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function createLocationFeedEntry(node: StoryNode, turn: number): Omit<FeedEntry, 'id'> {
+  return {
+    turn,
+    kind: 'location',
+    speaker: 'Location',
+    nodeId: node.id,
+    text: node.publicName,
+    content: {
+      name: node.name,
+      nodeType: node.nodeType,
+      turn,
+    },
+  }
 }
 
 function splitFeedLines(text: string) {
@@ -1693,8 +1750,60 @@ const gameMasterNarratorFrame = `You are a Game Master narrating a living world.
 You describe only what the player character can perceive right now — what they see, hear, smell, and feel in this exact moment. You never summarise past events or skip ahead. You never write the player character's thoughts, decisions, or dialogue. Every passage should end with the world in a state of tension — something unresolved, a detail that demands attention, or a choice that feels urgent. You respect the world's fixed rules absolutely: locations are fixed, exits are fixed, NPCs behave consistently with their established nature. You do not invent new locations, new exits, or new factions. If an authored choice leads to a consequence, you narrate that consequence viscerally and concretely. Keep passages to 120–180 words.`
 const directionWords = ['north', 'south', 'east', 'west', 'up', 'down', 'left', 'right', 'through', 'across'] as const
 
+function buildWorldRulesBlock() {
+  const rules = storySchema.fixedRules.map((rule, index) => `${index + 1}. ${rule}`)
+
+  return `--- WORLD RULES (ABSOLUTE — NEVER VIOLATE) ---
+${rules.join('\n') || '1. No additional world rules are defined.'}
+These rules cannot be broken by player choices, NPC behaviour, or narrative convenience.
+If a generated passage would violate any rule, rewrite it before outputting.
+---`
+}
+
 function getExitDirection(exit: StoryExit) {
   return exit.direction ?? exit.label ?? `Route to ${getNode(exit.toNodeId).publicName}`
+}
+
+function getExplorationHintForExit(exit: StoryExit) {
+  const targetNode = getNode(exit.toNodeId)
+  const direction = exit.direction ?? 'ahead'
+
+  return targetNode.explorationHint ?? `A ${getNodeTypeLabel(targetNode.nodeType).toLowerCase()} waits ${direction}, still unnamed.`
+}
+
+function getUnexploredExitHints(state: CampaignState) {
+  const explored = new Set(state.exploredNodeIds)
+  const currentNode = getNode(state.currentNodeId)
+
+  return getNodeExits(currentNode)
+    .filter((exit) => !explored.has(exit.toNodeId))
+    .map((exit) => getExplorationHintForExit(exit))
+}
+
+function buildUnexploredExitSensesBlock(state: CampaignState) {
+  const hints = getUnexploredExitHints(state)
+
+  if (hints.length === 0) {
+    return ''
+  }
+
+  return `At the edge of this scene, the player may sense: ${hints.join(' ')}
+Weave one of these into the closing atmosphere of your passage if it fits naturally.
+Do not name the destination. Do not invent alternative routes.`
+}
+
+function hasVisitedNodeInFeed(state: CampaignState, nodeId: string) {
+  return state.feed.some((entry) => entry.nodeId === nodeId && (entry.kind === 'narration' || entry.kind === 'dialogue' || entry.kind === 'location'))
+}
+
+function buildVisitedSceneOpeningRule(state: CampaignState) {
+  const node = getNode(state.currentNodeId)
+
+  if (!hasVisitedNodeInFeed(state, node.id)) {
+    return 'This is the first generated passage here; establish only immediate sensory pressure, not a full gazetteer description.'
+  }
+
+  return `The player has been to ${node.publicName} before. Open with action, atmosphere, or changed pressure; do not restate the location name as if introducing it for the first time.`
 }
 
 function buildWorldTopologyBlock(state: CampaignState) {
@@ -1731,13 +1840,30 @@ function getInvalidGeneratedDirections(state: CampaignState, text: string) {
   return directionWords.filter((word) => new RegExp(`\\b${escapeRegExp(word)}\\b`, 'i').test(text) && !validDirections.has(word))
 }
 
+function getSelectedChoicePromptPrefix(choice: StoryChoice) {
+  if (choice.displayStyle === 'dialogue') {
+    return `The player says (intent): ${choice.label}`
+  }
+
+  if (choice.displayStyle === 'passive') {
+    return 'The player waits and observes.'
+  }
+
+  return `The player acts: ${choice.label}`
+}
+
 function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   const node = getNode(state.currentNodeId)
   const sceneNpcs = state.storyNpcs.filter((npc) => npc.currentNodeId === state.currentNodeId || npc.introducedByEventId === event.id)
 
   return `${gameMasterNarratorFrame}
 
+${buildWorldRulesBlock()}
+
 ${buildWorldTopologyBlock(state)}
+
+${buildVisitedSceneOpeningRule(state)}
+${buildUnexploredExitSensesBlock(state)}
 
 Story: ${storySchema.title}
 Current place: ${node.publicName}
@@ -1773,7 +1899,11 @@ function buildPlayerActionResolutionPrompt(state: CampaignState, event: StoryEve
 
   return `${gameMasterNarratorFrame}
 
+${buildWorldRulesBlock()}
+
 ${buildWorldTopologyBlock(state)}
+
+${buildUnexploredExitSensesBlock(state)}
 
 Resolve the player's chosen action as original interactive fiction.
 
@@ -1783,6 +1913,7 @@ Scene pressure: ${event.prompt}
 Player character:
 ${formatPlayerSheet(state.player)}
 Game Master direction from contributor-only choice fields:
+Selected choice framing: ${getSelectedChoicePromptPrefix(choice)}
 Writer intent: ${choice.writerIntent}
 Neutral summary: ${choice.neutralSummary}
 Action prompt: ${choice.actionPrompt}
@@ -1813,6 +1944,8 @@ function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: St
 
   return `${gameMasterNarratorFrame}
 
+${buildWorldRulesBlock()}
+
 ${buildWorldTopologyBlock(state)}
 
 Write one visible NPC response in an original interactive fiction scene.
@@ -1825,6 +1958,7 @@ Knows: ${npc.knows}
 Current place: ${node.publicName}
 Scene: ${event.name} — ${event.prompt}
 Game Master direction from contributor-only choice fields:
+Selected choice framing: ${getSelectedChoicePromptPrefix(choice)}
 Writer intent: ${choice.writerIntent}
 Neutral summary: ${choice.neutralSummary}
 Action prompt: ${choice.actionPrompt}
@@ -1960,6 +2094,17 @@ function FeedBlock({
   references: CodexReference[]
   onRetry?: () => void
 }) {
+  if (entry.kind === 'location') {
+    return (
+      <section className="mb-5 mt-6 border-t border-[var(--color-border)] pt-3 last:mb-0">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 text-[var(--color-text-muted)]">
+          <p className="font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em]">{entry.content?.name ?? entry.text}</p>
+          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ?? 'place'} · turn {entry.content?.turn ?? entry.turn}</p>
+        </div>
+      </section>
+    )
+  }
+
   const lines = splitFeedLines(entry.text).filter((line) => line.trim().length > 0)
   const shouldAnimateText = entry.revealMode === 'animated' && !entry.animationSkipped
 
@@ -2057,11 +2202,13 @@ function getMapRenderModel(state: CampaignState, selectedNodeId?: string) {
     const isExplored = explored.has(node.id)
     const isCurrent = node.id === state.currentNodeId
     const travelDisabledReason = getTravelDisabledReason(state, node.id)
+    const routeToNode = adjacentTargets.find((target) => target.node.id === node.id)?.exit
+    const explorationHint = routeToNode ? getExplorationHintForExit(routeToNode) : node.explorationHint
 
     return {
       id: node.id,
-      label: isExplored || isCurrent ? node.publicName : 'Unexplored',
-      description: isExplored ? node.description : 'Who knows what is here',
+      label: isExplored || isCurrent ? node.publicName : 'Unexplored route',
+      description: isExplored || isCurrent ? node.description : explorationHint ?? 'The route ahead is still uncertain.',
       nodeType: node.nodeType,
       position: normalizeMapPosition(node),
       explored: isExplored,
@@ -2408,23 +2555,34 @@ function ChoicePanel({
           const disabledId = `${choice.id}-disabled-reason`
           const describedBy = disabledReason ? disabledId : undefined
           const modeColor = getStoryChoiceModeColor(choice.mode)
+          const primarySkill = choice.skillTags[0]
+          const isAction = choice.displayStyle === 'action'
+          const isDialogue = choice.displayStyle === 'dialogue'
+          const isPassive = choice.displayStyle === 'passive'
 
           return (
-            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
+            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${isDialogue ? 'pl-7' : ''} ${isPassive ? 'py-2.5' : ''} ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
               <span className="absolute bottom-0 left-0 top-0 w-[3px]" style={{ backgroundColor: modeColor }} />
               <span className="block">
-                <span className="mb-1.5 inline-flex items-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60" style={{ color: modeColor }}>
+                <span className={`mb-1.5 inline-flex items-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60 ${isPassive ? 'opacity-40' : ''}`} style={{ color: modeColor }}>
                   <StoryChoiceModeIcon mode={choice.mode} />
                   {getStoryChoiceModeBadge(choice.mode)}
                 </span>
-                <span className="mb-1 block text-sm font-medium leading-snug text-[var(--color-text)]">{confirming ? `Confirm: ${choice.label}` : choice.label}</span>
-                {choice.skillTags.length > 0 ? (
+                <span className={`mb-1 flex items-start justify-between gap-3 leading-snug ${isAction ? 'text-sm font-bold text-[var(--color-text)]' : ''} ${isDialogue ? 'text-sm italic text-[var(--color-text)]' : ''} ${isPassive ? 'text-xs text-[var(--color-text-muted)]' : ''}`}>
+                  <span>
+                    {isDialogue ? <span className="mr-1 font-sans not-italic text-[0.65rem] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">[SAY]</span> : null}
+                    {isDialogue ? <span aria-hidden="true">“</span> : null}
+                    {confirming ? `Confirm: ${choice.label}` : choice.label}
+                  </span>
+                  {isAction && primarySkill ? (
+                    <span className="shrink-0 rounded-full border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[9px] font-normal uppercase tracking-widest text-[var(--color-text-muted)]">
+                      {skillTagDefinitions[primarySkill].label}
+                    </span>
+                  ) : null}
+                </span>
+                {!isAction && !isPassive && choice.skillTags.length > 0 ? (
                   <span className="flex flex-wrap gap-1.5">
-                    {choice.skillTags.map((skill) => (
-                      <span key={skill} className="border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
-                        {skillTagDefinitions[skill].label}
-                      </span>
-                    ))}
+                    {choice.skillTags.map((skill) => <span key={skill} className="border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">{skillTagDefinitions[skill].label}</span>)}
                   </span>
                 ) : null}
                 {disabledReason ? <span id={disabledId} className="mt-2 block text-xs font-medium text-[var(--color-text-muted)]">{disabledReason}</span> : null}
@@ -2934,6 +3092,7 @@ function App() {
           ...state.feed,
           ...feedEntries,
           { id: createId('scene'), turn, kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
+          { id: createId('location'), ...createLocationFeedEntry(node, turn), eventId: event.id },
           { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true },
         ],
         debugFeed: state.debugFeed,
@@ -3044,6 +3203,7 @@ function App() {
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
       appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
+      appendFeedEntry({ ...createLocationFeedEntry(node, turn), eventId: event.id })
       const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
       appendDirectionLintWarning(stateAtStart, resolutionText, turn, 'Choice resolution')
@@ -3085,6 +3245,7 @@ function App() {
 
       if (outcome !== 'running') {
         const outcomeText = outcome === 'won' ? 'The proof has been delivered. The dead have names again, and the hall has to hear them.' : 'Tamsin can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.'
+        appendFeedEntry({ ...createLocationFeedEntry(getNode(appliedState.currentNodeId), nextTurn) })
         appendFeedEntry({
           turn: nextTurn,
           kind: 'narration',
@@ -3131,7 +3292,7 @@ function App() {
             <CardHeader className="pb-2">
               <div className="min-w-0">
                 <CardTitle className="mt-1 font-[var(--font-display)] text-xl font-light leading-tight">{storySchema.title}</CardTitle>
-                <p className="ui-label mt-1">Sample Story</p>
+                <p className="mt-1 font-serif text-sm text-[var(--color-text-muted)]">a story by IFF Contributors</p>
               </div>
             </CardHeader>
             <CardContent>
@@ -3173,7 +3334,7 @@ function App() {
                   <TabsTrigger value="map" className="inline-flex items-center gap-2"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
                   <TabsTrigger value="character" className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
                 </TabsList>
-                <TabsContent value="story" className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+                <TabsContent value="story" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
                     <CardHeader className="shrink-0 border-b border-[var(--color-border)] pb-4">
                       <div className="min-w-0">
@@ -3202,10 +3363,10 @@ function App() {
                     <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeAnimatedEntry={activeAnimatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onSkipAnimation={skipActiveTextAnimation} />
                   </section>
                 </TabsContent>
-                <TabsContent value="map" className="min-h-0 flex-1 overflow-hidden">
+                <TabsContent value="map" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
                   <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onTravelNode={travelToNode} />
                 </TabsContent>
-                <TabsContent value="character" className="min-h-0 flex-1 overflow-hidden">
+                <TabsContent value="character" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
                   <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} />
                 </TabsContent>
               </Tabs>

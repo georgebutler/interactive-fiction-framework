@@ -128,6 +128,8 @@ The current sample schema lives in `src/App.tsx`. The core types are intentional
 
 Defines the story title, premise, opening narration, goal node, fixed rules, public codex terms, playable protagonist, map nodes, and events.
 
+`fixedRules` are absolute model constraints. Each string should be one world law, written as a prohibition or absolute fact.
+
 ### `PlayableCharacter`
 
 Defines the character the user plays:
@@ -152,6 +154,7 @@ Represents a place on the map. Nodes define:
 - Internal id
 - Public name
 - Description
+- Optional exploration hint for unreached exits
 - Node type
 - Exits
 - Optional blockers
@@ -176,14 +179,14 @@ Represents a scene pressure at a location. Events define:
 Represents a player-selectable option. Choices define:
 
 - Label
-- Option summary
-- Writer intent
 - Action mode (`act`, `say`, `ask`, `use-item`, `risk`, `wait`)
-- Tone
-- Optional skill tags
+- Display style (`action`, `dialogue`, `passive`)
+- Skill tags
 - Optional item requirement
-- Consequence hint
+- Prompt-only writer intent, neutral summary, and action prompt
 - Deterministic effects
+
+Write action choices as imperatives. The player should feel they are issuing a command to their character, not selecting a story branch. Good: `Wedge your shovel under the lid.` Bad: `Try to open the coffin.`
 
 ### `StoryEffect`
 
@@ -261,6 +264,20 @@ A good story contribution should include:
 - A plausible failure state
 
 Story tone can vary, but contributions should keep agency clear and state deterministic. The player should understand what kind of action they are choosing, while the prose can preserve uncertainty and surprise.
+
+### Writing World Rules
+
+World rules are model constraints, not flavour text. They are injected into every generation prompt as absolute laws the narrator must not contradict.
+
+Write each rule so it is specific and falsifiable. A good rule should make it clear when generated prose has broken it.
+
+Good examples:
+
+- `The dead cannot speak unless the lich wills it.`
+- `King Osric's word is law. No NPC defies him openly.`
+- `Blackpine Road has no northern exit.`
+
+Avoid broad mood guidance such as `The world is grim` or `Magic feels rare`. Put tone and atmosphere in scene prompts, node descriptions, or writer intent instead.
 
 ## Development notes
 
