@@ -155,6 +155,7 @@ Represents a place on the map. Nodes define:
 
 - Internal id
 - Public name
+- Optional canonical description to seed confirmed facts before generation
 - Description
 - Optional exploration hint for unreached exits
 - Node type
@@ -207,6 +208,7 @@ Defines reusable NPC data for generated scenes and codex summaries:
 
 - Name
 - Role
+- Optional canonical description to seed confirmed facts when introduced
 - Description
 - Voice
 - Want

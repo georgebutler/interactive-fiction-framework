@@ -113,6 +113,7 @@ type StoryNpcTemplate = {
   id: string
   name: string
   role: string
+  canonicalDescription?: string
   description: string
   voice: string
   want: string
@@ -157,6 +158,7 @@ type StoryNode = {
   id: string
   name: string
   publicName: string
+  canonicalDescription?: string
   description: string
   explorationHint?: string
   iconAssetId: StoryIconId
@@ -425,6 +427,7 @@ const storySchema: StorySchema = {
       id: 'graymere-yard',
       name: 'Graymere Yard',
       publicName: 'Graymere Hall',
+      canonicalDescription: 'Graymere Hall is the muddy seat of King Osric, where polished orders make the dead roads sound cleaner than they are.',
       description: 'The muddy seat of King Osric, where limewashed walls, wet rushes, and polished orders make the roads sound cleaner than they are.',
       explorationHint: 'Mud-dark roads lead away from the hall under a low sky.',
       iconAssetId: 'road',
@@ -454,6 +457,7 @@ const storySchema: StorySchema = {
       id: 'ash-farms',
       name: 'Ash Farms',
       publicName: 'Ash Farms',
+      canonicalDescription: 'Ash Farms is a stretch of sickly fields outside Redvale where fresh graves keep opening and farmers count names under their breath.',
       description: 'Sickly fields outside Redvale, where fresh graves keep opening and farmers count names under their breath.',
       explorationHint: 'A rutted farm road sinks into fields and grave-cold mist.',
       iconAssetId: 'crossroads',
@@ -475,6 +479,7 @@ const storySchema: StorySchema = {
       id: 'old-watchtower',
       name: 'Old Watchtower',
       publicName: 'Old Watchtower',
+      canonicalDescription: 'The Old Watchtower is a leaning hill tower where bad maps, burial marks, and worse advice have survived the weather.',
       description: 'A leaning hill tower where bad maps, old burial customs, and worse advice have survived the weather.',
       explorationHint: 'A high path climbs toward broken stone and old warning marks.',
       iconAssetId: 'codex',
@@ -497,6 +502,7 @@ const storySchema: StorySchema = {
       id: 'blackpine-road',
       name: 'Blackpine Road',
       publicName: 'Blackpine Road',
+      canonicalDescription: 'Blackpine Road is a cramped forest road where split carts lean under black pines and cold mist hangs low over the ruts.',
       description: 'A cramped forest road where split carts lean under black pines and cold mist hangs low over the ruts.',
       explorationHint: 'Black pines crowd a road where cold fog swallows wheel ruts.',
       iconAssetId: 'forest',
@@ -518,6 +524,7 @@ const storySchema: StorySchema = {
       id: 'barrow-crypt',
       name: 'Old Barrow',
       publicName: 'Old Barrow',
+      canonicalDescription: 'The Old Barrow is a buried hall under the hill, cold with old bones, a cracked bell, and signs that someone has been using the dead.',
       description: 'A buried hall under the hill, cold with old bones, a cracked bell, and signs that someone has been using the dead.',
       explorationHint: 'A grass-swallowed mound waits ahead with stone teeth showing.',
       iconAssetId: 'keep',
@@ -548,6 +555,7 @@ const storySchema: StorySchema = {
       id: 'king-return',
       name: 'King Return',
       publicName: 'Graymere Hall Return',
+      canonicalDescription: 'Graymere Hall Return is the court’s reckoning point, where survival must become proof and proof must become a sentence.',
       description: 'The return to King Osric, where survival must become proof and proof must become a sentence.',
       explorationHint: 'Torch smoke and court noise gather beyond the road back.',
       iconAssetId: 'lantern',
@@ -571,6 +579,7 @@ const storySchema: StorySchema = {
         id: 'king-osric',
         name: 'King Osric',
         role: 'Tired king',
+        canonicalDescription: 'King Osric is a thin ruler in a patched crown who has slept badly enough to mistake command for courage.',
         description: 'A thin ruler in a patched crown who has slept badly enough to mistake command for courage.',
         voice: 'formal, clipped, ashamed when pressed, impatient with delay',
         want: 'Send someone to stop the dead before the graves around Redvale empty out.',
@@ -663,6 +672,7 @@ const storySchema: StorySchema = {
         id: 'farmer-riel',
         name: 'Farmer Riel',
         role: 'Frightened father',
+        canonicalDescription: 'Farmer Riel is a raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         description: 'A raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         voice: 'plain, guarded, angry from fear',
         want: 'Know whether Tamsin brings help or another royal lie.',
@@ -712,6 +722,7 @@ const storySchema: StorySchema = {
         id: 'miller-joan',
         name: 'Miller Joan',
         role: 'Injured farmer',
+        canonicalDescription: 'Miller Joan is a mud-covered miller with a shaking lantern and no patience for ceremonial courage.',
         description: 'A mud-covered miller with a shaking lantern and no patience for ceremonial courage.',
         voice: 'plain, angry, frightened, and practical',
         want: 'Get her brother out of the root cellar before the dead find the door.',
@@ -765,6 +776,7 @@ const storySchema: StorySchema = {
         id: 'old-perrin',
         name: 'Old Perrin',
         role: 'Tower hermit',
+        canonicalDescription: 'Old Perrin is a sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         voice: 'rasping, blunt, fond of ugly truths',
         want: 'Convince Tamsin that courage without care will only add a fresh body to the road.',
@@ -855,6 +867,7 @@ const storySchema: StorySchema = {
         id: 'sergeant-maud',
         name: 'Sergeant Maud',
         role: 'Deserter with a borrowed sword',
+        canonicalDescription: 'Sergeant Maud is a hollow-cheeked veteran whose shame has hardened into toll-taking.',
         description: 'A hollow-cheeked veteran whose shame has hardened into toll-taking.',
         voice: 'dry, threatening, tired beneath the threat',
         want: 'Take enough from travelers to keep her deserters alive another week.',
@@ -1058,7 +1071,7 @@ const initialState: CampaignState = {
   debugFeed: [],
   flags: {},
   canonicalFacts: {
-    [getNode('graymere-yard').publicName]: getFirstSentence(storySchema.openingNarration),
+    [getNode('graymere-yard').publicName]: getNodeCanonicalFact(getNode('graymere-yard')),
   },
   outcome: 'running',
 }
@@ -1110,7 +1123,11 @@ function setCanonicalFact(facts: CampaignState['canonicalFacts'], subject: strin
 }
 
 function getNpcCanonicalFact(npc: StoryNpcTemplate) {
-  return npc.description
+  return npc.canonicalDescription ?? npc.description
+}
+
+function getNodeCanonicalFact(node: StoryNode) {
+  return node.canonicalDescription ?? node.description
 }
 
 function getActiveAnimatedEntry(state: CampaignState) {
@@ -3211,7 +3228,7 @@ function App() {
   }
 
   const rememberLocationCanonicalFact = (node: StoryNode, narration: string) => {
-    const firstSentence = getFirstSentence(narration)
+    const firstSentence = node.canonicalDescription ?? getFirstSentence(narration)
 
     if (!firstSentence) {
       return
@@ -3239,7 +3256,8 @@ function App() {
       const turn = stateAtStart.turn
       const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
       const node = getNode(stateAtStart.currentNodeId)
-      const { storyNpcs, canonicalFacts } = getOrCreateEventNpc(stateAtStart, event)
+      const nodeCanonicalFacts = setCanonicalFact(stateAtStart.canonicalFacts, node.publicName, node.canonicalDescription)
+      const { storyNpcs, canonicalFacts } = getOrCreateEventNpc({ ...stateAtStart, canonicalFacts: nodeCanonicalFacts }, event)
       const sceneState = {
         ...stateAtStart,
         currentEvent: event,
