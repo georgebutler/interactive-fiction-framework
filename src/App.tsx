@@ -182,8 +182,8 @@ type FeedEntry = {
   speaker?: string
   text: string
   generatedText?: string
-  revealedLineCount?: number
-  revealMode?: 'immediate' | 'line-gated'
+  revealMode?: 'immediate' | 'animated'
+  animationSkipped?: boolean
   nodeId?: string
   eventId?: string
   streaming?: boolean
@@ -1037,28 +1037,9 @@ function splitFeedLines(text: string) {
     .filter(Boolean)
 }
 
-function getGeneratedFeedLines(entry: FeedEntry) {
-  return splitFeedLines(entry.generatedText ?? entry.text)
-}
-
-function getRevealedFeedText(entry: FeedEntry, revealedLineCount = entry.revealedLineCount ?? getGeneratedFeedLines(entry).length) {
-  return getGeneratedFeedLines(entry).slice(0, revealedLineCount).join('\n')
-}
-
-function getFeedLineCount(entry: FeedEntry) {
-  return getGeneratedFeedLines(entry).length
-}
-
-function hasUnrevealedLines(entry: FeedEntry) {
-  return entry.revealMode === 'line-gated' && (entry.revealedLineCount ?? 0) < getFeedLineCount(entry)
-}
-
-function isFeedEntryFullyRevealed(entry: FeedEntry) {
-  return entry.revealMode !== 'line-gated' || !entry.streaming && !hasUnrevealedLines(entry)
-}
-
-function getActiveLineGatedEntry(state: CampaignState) {
-  return state.feed.find((entry) => entry.revealMode === 'line-gated' && !isFeedEntryFullyRevealed(entry))
+function getActiveAnimatedEntry(state: CampaignState) {
+  const animatedEntries = state.feed.filter((entry) => entry.revealMode === 'animated' && !entry.animationSkipped)
+  return animatedEntries.find((entry) => entry.streaming) ?? animatedEntries[0]
 }
 
 function getNode(id: string) {
@@ -1969,9 +1950,9 @@ function FeedBlock({
   onRetry?: () => void
 }) {
   const lines = splitFeedLines(entry.text).filter((line) => line.trim().length > 0)
-  const isWaitingForLine = entry.revealMode === 'line-gated' && Boolean(entry.generatedText) && lines.length === 0
+  const shouldAnimateText = entry.revealMode === 'animated' && !entry.animationSkipped
 
-  if (lines.length === 0 && !entry.streaming && !isWaitingForLine) {
+  if (lines.length === 0 && !entry.streaming) {
     return null
   }
 
@@ -2006,14 +1987,12 @@ function FeedBlock({
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
                   <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
-                    {renderCodexText(displayedText, references, { animate: true, stagger: !entry.streaming })}
-                    {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
+                    {renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming })}
                   </span>
                 </p>
               ) : (
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
-                  <span>{renderCodexText(displayedText, references, { animate: true, stagger: !entry.streaming })}</span>
-                  {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
+                  <span>{renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming })}</span>
                 </p>
               )
             })}
@@ -2353,30 +2332,28 @@ function StatusStrip({
 function ChoicePanel({
   state,
   isAdvancing,
-  activeLineGatedEntry,
+  activeAnimatedEntry,
   confirmingChoiceId,
   onCancelConfirm,
   onBeginScene,
   onChoose,
-  onContinue,
+  onSkipAnimation,
 }: {
   state: CampaignState
   isAdvancing: boolean
-  activeLineGatedEntry?: FeedEntry
+  activeAnimatedEntry?: FeedEntry
   confirmingChoiceId?: string
   onCancelConfirm: () => void
   onBeginScene: () => void
   onChoose: (choice: StoryChoice) => void
-  onContinue: () => void
+  onSkipAnimation: () => void
 }) {
-  if (activeLineGatedEntry) {
-    const canContinue = hasUnrevealedLines(activeLineGatedEntry)
-
+  if (activeAnimatedEntry) {
     return (
       <Card className="iff-chrome-panel">
         <CardContent>
-          <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full font-serif text-base">
-            {canContinue ? 'Continue' : <><LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />Thinking</>}
+          <Button type="button" size="lg" onClick={onSkipAnimation} disabled={Boolean(activeAnimatedEntry.streaming)} className="w-full font-serif text-base">
+            {activeAnimatedEntry.streaming ? <><LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />Thinking</> : 'Continue'}
           </Button>
         </CardContent>
       </Card>
@@ -2583,7 +2560,6 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
                 </div>
                 <p className="whitespace-pre-wrap font-serif text-sm leading-6 text-muted-foreground">
                   {entry.text}
-                  {entry.streaming ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                 </p>
               </article>
             ))}
@@ -2725,7 +2701,7 @@ function App() {
   const previousInventoryIdsRef = useRef(initialState.player.inventory.map((item) => item.id).join('|'))
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
-  const activeLineGatedEntry = useMemo(() => getActiveLineGatedEntry(campaign), [campaign])
+  const activeAnimatedEntry = useMemo(() => getActiveAnimatedEntry(campaign), [campaign])
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode
@@ -2852,12 +2828,7 @@ function App() {
     const appendGeneratedText = (text: string) => {
       updateFeedEntry(entryId, (entry) => {
         const generatedText = `${entry.generatedText ?? entry.text}${text}`
-        const generatedLineCount = splitFeedLines(generatedText).length
-        const shouldAutoRevealFirstLine = entry.revealMode === 'line-gated' && (entry.revealedLineCount ?? 0) === 0 && generatedLineCount > 0
-        const revealedLineCount = entry.revealMode === 'line-gated' ? shouldAutoRevealFirstLine ? 1 : entry.revealedLineCount ?? 0 : generatedLineCount
-        const nextEntry = { ...entry, generatedText, revealedLineCount }
-
-        return { ...nextEntry, text: getRevealedFeedText(nextEntry, revealedLineCount) }
+        return { ...entry, generatedText, text: generatedText }
       })
     }
     const fullText = await streamLocalText(llmSettings, prompt, async (chunk) => {
@@ -2874,18 +2845,19 @@ function App() {
     return fullText
   }
 
-  const advanceFeedLine = () => {
-    const entryId = getActiveLineGatedEntry(campaign)?.id
+  const skipActiveTextAnimation = () => {
+    const entryId = getActiveAnimatedEntry(campaign)?.id
 
     if (!entryId) {
       return
     }
 
     updateFeedEntry(entryId, (entry) => {
-      const nextRevealedLineCount = Math.min((entry.revealedLineCount ?? 0) + 1, getFeedLineCount(entry))
-      const nextEntry = { ...entry, revealedLineCount: nextRevealedLineCount }
+      if (entry.streaming) {
+        return entry
+      }
 
-      return { ...nextEntry, text: getRevealedFeedText(nextEntry, nextRevealedLineCount) }
+      return { ...entry, animationSkipped: true }
     })
   }
 
@@ -2929,7 +2901,7 @@ function App() {
           ...state.feed,
           ...feedEntries,
           { id: createId('scene'), turn, kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
-          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true },
+          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true },
         ],
         debugFeed: state.debugFeed,
       }))
@@ -2959,7 +2931,7 @@ function App() {
   }
 
   const travelToNode = async (nodeId: string) => {
-    if (isAdvancing || campaign.outcome !== 'running' || getActiveLineGatedEntry(campaign)) {
+    if (isAdvancing || campaign.outcome !== 'running' || getActiveAnimatedEntry(campaign)) {
       return
     }
 
@@ -3038,7 +3010,7 @@ function App() {
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
       appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
-      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true })
+      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
       updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: effects.map(getEffectBadge), streaming: false }))
 
@@ -3046,7 +3018,7 @@ function App() {
       if (sceneNpc) {
         const npcPrompt = buildNpcResponsePrompt(stateAtStart, event, sceneNpc, choice, resolutionText)
         appendDebugEntry({ turn, label: 'NPC prompt', text: npcPrompt })
-        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealedLineCount: 0, revealMode: 'line-gated', streaming: true })
+        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
         const npcTurn = await streamFeedEntry(npcEntryId, npcPrompt)
         updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
         updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcTurn].slice(-8) } : npc))
@@ -3082,10 +3054,9 @@ function App() {
           kind: 'narration',
           speaker: 'Narrator',
           nodeId: appliedState.currentNodeId,
-          text: '',
+          text: outcomeText,
           generatedText: outcomeText,
-          revealedLineCount: 0,
-          revealMode: 'line-gated',
+          revealMode: 'animated',
         })
       }
     } catch (error) {
@@ -3192,7 +3163,7 @@ function App() {
                     </CardContent>
                   </Card>
                   <section aria-label="Next actions" className="shrink-0">
-                    <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeLineGatedEntry={activeLineGatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onContinue={advanceFeedLine} />
+                    <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeAnimatedEntry={activeAnimatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onSkipAnimation={skipActiveTextAnimation} />
                   </section>
                 </TabsContent>
                 <TabsContent value="map" className="min-h-0 flex-1 overflow-hidden">

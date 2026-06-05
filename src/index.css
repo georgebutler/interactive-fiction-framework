@@ -110,11 +110,6 @@ body {
   }
 }
 
-@keyframes iff-cursor-blink {
-  0%, 48% { opacity: 1; }
-  49%, 100% { opacity: 0; }
-}
-
 @keyframes iff-character-reveal {
   from {
     opacity: 0;
@@ -165,10 +160,6 @@ body {
 
 .iff-log-line {
   animation: iff-log-line-enter 150ms ease-out both;
-}
-
-.iff-log-line .animate-pulse {
-  animation: iff-cursor-blink 1s step-end infinite;
 }
 
 .iff-character-reveal {
