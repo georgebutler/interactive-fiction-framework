@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, LoaderCircleIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -230,11 +230,11 @@ type CodexReference = {
 }
 
 const codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>> = {
-  Czerwonbród: { type: 'place', targetId: 'ash-farms' },
+  Redvale: { type: 'place', targetId: 'ash-farms' },
 }
 
 const codexTermSummaries: Record<string, string> = {
-  'the lich': 'The deathless ruler beneath Kurhan Crypt, raising the dead through stolen burial rites, old commands, and a Bone Charm that anchors its power.',
+  'the lich': 'A frightened name people use for whatever is stirring the graves. It may be an old lord, a wrong burial custom, or just a rumor that makes the dead easier to explain.',
 }
 
 const storyIconAssets: Record<StoryIconId, string> = {
@@ -253,7 +253,7 @@ const publicDomainPortraitAsset = '/portraits/fra-filippo-lippi-portrait-public-
 const skillTagDefinitions: Record<string, { label: string; summary: string }> = {
   'grave-lore': {
     label: 'Burial Knowledge',
-    summary: 'Knows grave rites, burial signs, and how the dead are meant to rest.',
+    summary: 'Knows grave customs, burial signs, and how the dead are meant to rest.',
   },
   'plain-speech': {
     label: 'Plain Speaking',
@@ -277,9 +277,9 @@ const graveSpade: InventoryItem = {
 
 const graveAsh: InventoryItem = {
   id: 'grave-ash',
-  name: 'Grave Ash',
-  description: 'A stoppered pouch of ash gathered from consecrated soil. It can blind the dead for a few breaths.',
-  tags: ['ward', 'ritual'],
+  name: 'Holy Water',
+  description: 'A small stoppered flask blessed by a village priest. Tamsin has seen it make the restless dead flinch and slow.',
+  tags: ['church', 'water'],
   iconAssetId: 'lantern',
   consumable: true,
   visible: true,
@@ -288,8 +288,8 @@ const graveAsh: InventoryItem = {
 const ironNails: InventoryItem = {
   id: 'iron-nails',
   name: 'Iron Nails',
-  description: 'A palmful of coffin nails. They still remember the shape of a shut door.',
-  tags: ['iron', 'ward'],
+  description: 'A palmful of coffin nails. Good iron, bent and old, useful for holding a door when hands press from the other side.',
+  tags: ['iron', 'tool'],
   iconAssetId: 'keep',
   consumable: true,
   visible: true,
@@ -329,7 +329,7 @@ const bellClapper: InventoryItem = {
   id: 'bell-clapper',
   name: 'Silver Bell Clapper',
   description: 'The missing tongue of an old burial bell, dark with age and bright where Tamsin rubbed it clean.',
-  tags: ['ritual', 'silver'],
+  tags: ['church', 'silver'],
   iconAssetId: 'codex',
   consumable: false,
   visible: true,
@@ -337,9 +337,9 @@ const bellClapper: InventoryItem = {
 
 const boneCharm: InventoryItem = {
   id: 'bone-charm',
-  name: 'Bone Charm',
-  description: 'A fingerbone wrapped in silver wire. It is proof, prison, and accusation all at once.',
-  tags: ['proof', 'ritual'],
+  name: 'Bone Token',
+  description: 'A fingerbone wrapped in silver wire. It is ugly enough for proof, whatever tale the court chooses to tell about it.',
+  tags: ['proof', 'bone'],
   iconAssetId: 'forest',
   consumable: false,
   visible: true,
@@ -347,9 +347,9 @@ const boneCharm: InventoryItem = {
 
 const storySchema: StorySchema = {
   id: 'kings-lich-playable',
-  title: 'The King’s Lich',
-  premise: 'A royal order sends a practical gravedigger through opened graves, old rites, and a court that would rather name sacrifice as service.',
-  openingNarration: 'Szary Dwór Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Czerwonbród opening somewhere beyond the rain.',
+  title: 'The Open Graves',
+  premise: 'A royal order sends a practical gravedigger through opened graves, frightened villages, and a court that would rather call sacrifice service.',
+  openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
   victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
   defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
   goalNodeId: 'king-return',
@@ -364,7 +364,7 @@ const storySchema: StorySchema = {
     'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
     'All story material and style guidance must remain original and generic, without named protected references.',
   ],
-  codexTerms: ['Czerwonbród', 'King Osric', 'Czarnobór Road', 'Popielowe Farms', 'Łysa Watchtower', 'Kurhan Crypt', 'Szary Dwór Hall', "Tamsin's Shovel", 'Grave Ash', 'Iron Nails', 'Sealed Writ', 'the lich'],
+  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Old Barrow', 'Graymere Hall', "Tamsin's Shovel", 'Holy Water', 'Iron Nails', 'Sealed Writ', 'the lich'],
   player: {
     id: 'tamsin',
     name: 'Tamsin',
@@ -379,33 +379,33 @@ const storySchema: StorySchema = {
       innerStyle: 'watchful, restrained, bitterly funny when fear gets close',
       fear: 'being spent by powerful people who will misname it courage',
       desire: 'to put the dead back down and return to work that makes sense',
-      contradiction: 'she respects burial rites but distrusts anyone who turns sacrifice into policy',
+      contradiction: 'she respects burial customs but distrusts anyone who turns sacrifice into policy',
     },
     backstory: {
-      origin: 'Tamsin digs graves outside Czerwonbród and was taken by levy because she knows the dead too well.',
+      origin: 'Tamsin digs graves outside Redvale and was taken by levy because she knows the dead too well.',
       wound: 'She has buried neighbors for orders written by people who never learned their names.',
       want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
-      privateKnowledge: 'Grave ash can blind a corpse for a few breaths if thrown into its eyes or mouth.',
+      privateKnowledge: 'Holy Water can slow a corpse for a few breaths if thrown into its eyes or mouth.',
     },
     memory: ['The king called it service because he could not bear to call it fear.'],
   },
   nodes: [
     {
       id: 'graymere-yard',
-      name: 'Szary Dwór Yard',
-      publicName: 'Szary Dwór Hall',
+      name: 'Graymere Yard',
+      publicName: 'Graymere Hall',
       description: 'The muddy seat of King Osric, where limewashed walls, wet rushes, and polished orders make the roads sound cleaner than they are.',
       iconAssetId: 'road',
       nodeType: 'origin',
       exits: [
         { toNodeId: 'ash-farms', label: 'Follow the opened graves' },
-        { toNodeId: 'old-watchtower', label: 'Take the high road toward old rites' },
+        { toNodeId: 'old-watchtower', label: 'Take the high road toward the old tower' },
       ],
       unfinishedBusiness: [
         {
           id: 'answer-royal-order',
           label: 'Answer the royal order',
-          reason: 'Tamsin needs to answer King Osric’s order before leaving Szary Dwór Hall.',
+          reason: 'Tamsin needs to answer King Osric’s order before leaving Graymere Hall.',
           activeEventId: 'royal-order',
           clearedByFlag: 'royal-order-answered',
         },
@@ -420,9 +420,9 @@ const storySchema: StorySchema = {
     },
     {
       id: 'ash-farms',
-      name: 'Popielowe Farms',
-      publicName: 'Popielowe Farms',
-      description: 'Sickly fields outside Czerwonbród, where fresh graves keep opening and farmers count names under their breath.',
+      name: 'Ash Farms',
+      publicName: 'Ash Farms',
+      description: 'Sickly fields outside Redvale, where fresh graves keep opening and farmers count names under their breath.',
       iconAssetId: 'crossroads',
       nodeType: 'settlement',
       exits: [
@@ -440,13 +440,13 @@ const storySchema: StorySchema = {
     },
     {
       id: 'old-watchtower',
-      name: 'Łysa Watchtower',
-      publicName: 'Łysa Watchtower',
-      description: 'A bald hill tower where old rites, bad maps, smoke-black icons, and worse advice have survived the weather.',
+      name: 'Old Watchtower',
+      publicName: 'Old Watchtower',
+      description: 'A leaning hill tower where bad maps, old burial customs, and worse advice have survived the weather.',
       iconAssetId: 'codex',
       nodeType: 'watch',
       exits: [
-        { toNodeId: 'graymere-yard', label: 'Descend toward Szary Dwór Hall' },
+        { toNodeId: 'graymere-yard', label: 'Descend toward Graymere Hall' },
         { toNodeId: 'ash-farms', label: 'Cross back toward the fields' },
         { toNodeId: 'blackpine-road', label: 'Take the marked road under the pines' },
         { toNodeId: 'barrow-crypt', label: 'Follow the tower map toward the barrow' },
@@ -461,15 +461,15 @@ const storySchema: StorySchema = {
     },
     {
       id: 'blackpine-road',
-      name: 'Czarnobór Road',
-      publicName: 'Czarnobór Road',
-      description: 'A cramped forest road where split carts lean under black pines and grave-cold mist hangs low enough to drink.',
+      name: 'Blackpine Road',
+      publicName: 'Blackpine Road',
+      description: 'A cramped forest road where split carts lean under black pines and cold mist hangs low over the ruts.',
       iconAssetId: 'forest',
       nodeType: 'hazard',
       exits: [
         { toNodeId: 'ash-farms', label: 'Return by the farm track' },
         { toNodeId: 'old-watchtower', label: 'Climb back toward the tower' },
-        { toNodeId: 'barrow-crypt', label: 'Press through the grave mist' },
+        { toNodeId: 'barrow-crypt', label: 'Press through the mist' },
       ],
       nextNodeIds: ['ash-farms', 'old-watchtower', 'barrow-crypt'],
       mapPosition: { x: 285, y: 250 },
@@ -481,21 +481,21 @@ const storySchema: StorySchema = {
     },
     {
       id: 'barrow-crypt',
-      name: 'Kurhan Crypt',
-      publicName: 'Kurhan Crypt',
-      description: 'The lich’s buried hall, cold with old bones, stolen bells, and a ruler who has forgotten how to die.',
+      name: 'Old Barrow',
+      publicName: 'Old Barrow',
+      description: 'A buried hall under the hill, cold with old bones, a cracked bell, and signs that someone has been using the dead.',
       iconAssetId: 'keep',
       nodeType: 'crypt',
       exits: [
         { toNodeId: 'old-watchtower', label: 'Retreat by the tower path' },
-        { toNodeId: 'blackpine-road', label: 'Return through Czarnobór Road' },
+        { toNodeId: 'blackpine-road', label: 'Return through Blackpine Road' },
         {
           toNodeId: 'king-return',
           label: 'Return to court with proof',
           blocker: {
             id: 'proof-required',
             label: 'Proof required',
-            reason: 'Returning to court empty-handed would give the king another order, not proof. Tamsin needs something that can accuse the lich in public.',
+            reason: 'Returning to court empty-handed would give the king another order, not proof. Tamsin needs something that can show what is stirring the graves.',
             requiredItemId: 'bone-charm',
           },
         },
@@ -510,7 +510,7 @@ const storySchema: StorySchema = {
     {
       id: 'king-return',
       name: 'King Return',
-      publicName: 'Szary Dwór Hall Return',
+      publicName: 'Graymere Hall Return',
       description: 'The return to King Osric, where survival must become proof and proof must become a sentence.',
       iconAssetId: 'lantern',
       nodeType: 'court',
@@ -534,8 +534,8 @@ const storySchema: StorySchema = {
         role: 'Tired king',
         description: 'A thin ruler in a patched crown who has slept badly enough to mistake command for courage.',
         voice: 'formal, clipped, ashamed when pressed, impatient with delay',
-        want: 'Send someone to stop the lich before the dead around Czerwonbród outnumber the living.',
-        knows: 'The old barrows beyond Czarnobór Road are the source, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
+        want: 'Send someone to stop the dead before the graves around Redvale empty out.',
+        knows: 'The old barrow beyond Blackpine Road is where the trouble seems to start, and the last knight returned pale, silent, and dead-eyed before vanishing at dawn.',
       },
       choices: [
         {
@@ -550,14 +550,14 @@ const storySchema: StorySchema = {
           consequenceHint: 'The king resents the question but gives clearer information about the road east.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
-            { type: 'remember', text: 'King Osric admitted the barrows beyond Czarnobór Road are the source of the rising dead.' },
+            { type: 'remember', text: 'King Osric admitted the old barrow beyond Blackpine Road may be where the dead are being stirred.' },
             { type: 'revealNode', nodeId: 'ash-farms' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
         },
         {
           id: 'inspect-writ',
-          label: 'Study the Sealed Writ for what it can force open',
+          label: 'Study the Sealed Writ for what it can open',
           optionSummary: 'Look for practical authority the writ grants before leaving the hall.',
           writerIntent: 'Offer an investigative alternative that treats royal authority as a tool, not a feeling.',
           actionPrompt: 'The selected option is to study the Sealed Writ for practical access, demands, and obligations it can create.',
@@ -567,7 +567,7 @@ const storySchema: StorySchema = {
           consequenceHint: 'The writ becomes a practical key for frightened gates and stubborn officials.',
           effects: [
             { type: 'setFlag', flag: 'royal-order-answered', value: true },
-            { type: 'remember', text: 'The Sealed Writ can demand shelter, testimony, and access to sealed roads.' },
+            { type: 'remember', text: 'The Sealed Writ can demand shelter, testimony, and access to closed roads.' },
             { type: 'revealNode', nodeId: 'old-watchtower' },
             { type: 'moveToNode', nodeId: 'old-watchtower' },
           ],
@@ -624,7 +624,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
         id: 'farmer-riel',
-        name: 'Farmer Radek',
+        name: 'Farmer Riel',
         role: 'Frightened father',
         description: 'A raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         voice: 'plain, guarded, angry from fear',
@@ -637,13 +637,13 @@ const storySchema: StorySchema = {
           label: 'Answer him with the truth you can afford',
           optionSummary: 'Give a limited honest answer and leave room for what is still unknown.',
           writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
-          actionPrompt: 'The selected option is to answer Farmer Radek honestly about what is known, what is unknown, and the next intended step.',
+          actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
           mode: 'say',
           tone: 'empathetic',
           skillTags: ['plain-speech'],
           consequenceHint: 'Honesty does not comfort him, but it gives him a reason to share what he heard.',
           effects: [
-            { type: 'remember', text: 'A bell rang beneath the hill before the Popielowe Farms graves opened.' },
+            { type: 'remember', text: 'A bell rang beneath the hill before the Ash Farms graves opened.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
         },
@@ -658,7 +658,7 @@ const storySchema: StorySchema = {
           requiresItemId: 'royal-writ',
           consequenceHint: 'The farmer distrusts the seal but points her toward the first sign.',
           effects: [
-            { type: 'remember', text: 'The first opened grave at Popielowe Farms belonged to a bell-ringer buried without his clapper.' },
+            { type: 'remember', text: 'The first opened grave at Ash Farms belonged to a bell-ringer buried without his clapper.' },
             { type: 'moveToNode', nodeId: 'ash-farms' },
           ],
         },
@@ -673,7 +673,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'blackpine-road',
       npcTemplate: {
         id: 'miller-joan',
-        name: 'Miller Janka',
+        name: 'Miller Joan',
         role: 'Injured farmer',
         description: 'A mud-covered miller with a shaking lantern and no patience for ceremonial courage.',
         voice: 'plain, angry, frightened, and practical',
@@ -694,16 +694,16 @@ const storySchema: StorySchema = {
           consequenceHint: 'The nails buy enough time to pull the trapped man free without drawing every corpse at once.',
           effects: [
             { type: 'loseItem', itemId: 'iron-nails' },
-            { type: 'remember', text: 'Miller Janka saw a corpse in royal colors among the dead from the east.' },
+            { type: 'remember', text: 'Miller Joan saw a corpse in royal colors among the dead from the east.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
         },
         {
           id: 'throw-grave-ash',
-          label: 'Throw Grave Ash into the nearest dead face',
+          label: 'Throw Holy Water into the nearest dead face',
           optionSummary: 'Spend the ash for a fast opening, accepting that close work may hurt.',
           writerIntent: 'Offer a risky item-use option with a clear cost.',
-          actionPrompt: 'The selected option is to spend Grave Ash to blind the nearest corpse long enough to open the root cellar.',
+          actionPrompt: 'The selected option is to spend Holy Water to slow the nearest corpse long enough to open the root cellar.',
           mode: 'use-item',
           tone: 'reckless',
           skillTags: ['grave-lore'],
@@ -712,7 +712,7 @@ const storySchema: StorySchema = {
           effects: [
             { type: 'loseItem', itemId: 'grave-ash' },
             { type: 'damage', amount: 2, reason: 'The dead clawed close while the cellar opened.' },
-            { type: 'remember', text: 'Grave Ash can blind the dead, but only for moments.' },
+            { type: 'remember', text: 'Holy Water can slow the dead, but only for moments.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
         },
@@ -720,34 +720,34 @@ const storySchema: StorySchema = {
     },
     {
       id: 'hermit-warning',
-      name: 'The tower keeps an ugly rite',
+      name: 'The tower keeps an ugly warning',
       weight: 5,
       iconAssetId: 'codex',
-      prompt: 'A hermit at the old watchtower claims the lich can be stopped only if its Bone Charm is found and the burial bell is made whole.',
+      prompt: 'A hermit at the old watchtower says the dead began walking after someone stole from a burial bell under the hill.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'old-perrin',
-        name: 'Old Piotr',
+        name: 'Old Perrin',
         role: 'Tower hermit',
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         voice: 'rasping, blunt, fond of ugly truths',
-        want: 'Convince Tamsin that courage without a rite will only add a fresh body to the lich’s host.',
-        knows: 'The lich hides its soul in a Bone Charm near a silver burial bell, and the bell lacks its clapper.',
+        want: 'Convince Tamsin that courage without care will only add a fresh body to the road.',
+        knows: 'A fingerbone token lies near a silver burial bell under the hill, and the bell lacks its clapper.',
       },
       choices: [
         {
           id: 'trade-for-rite',
-          label: 'Trade plain answers for the burial rite',
-          optionSummary: 'Treat the hermit as a bargainer and exchange facts for instructions.',
-          writerIntent: 'Offer a direct social option that rewards candor with ritual knowledge.',
-          actionPrompt: 'The selected option is to give Old Piotr plain answers about the opened graves and demand the burial instructions in return.',
+          label: 'Trade plain answers for the burial custom',
+          optionSummary: 'Treat the hermit as a bargainer and exchange facts for useful instructions.',
+          writerIntent: 'Offer a direct social option that rewards candor with practical burial knowledge.',
+          actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
           mode: 'say',
           tone: 'direct',
           skillTags: ['plain-speech'],
           consequenceHint: 'The hermit respects a bargain with edges and gives her the missing clapper.',
           effects: [
             { type: 'gainItem', item: bellClapper },
-            { type: 'remember', text: 'The burial bell must be made whole before the Bone Charm can be broken.' },
+            { type: 'remember', text: 'The burial bell may matter because the dead began walking after its clapper went missing.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -760,9 +760,9 @@ const storySchema: StorySchema = {
           mode: 'act',
           tone: 'investigative',
           skillTags: ['grave-lore'],
-          consequenceHint: 'The marks confirm the rite and show where the barrow path begins.',
+          consequenceHint: 'The marks confirm the burial custom and show where the barrow path begins.',
           effects: [
-            { type: 'remember', text: 'The barrow rite binds bell, Bone Charm, and grave name together.' },
+            { type: 'remember', text: 'The barrow marks link the bell, a fingerbone token, and the old names of the buried dead.' },
             { type: 'revealNode', nodeId: 'barrow-crypt' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
@@ -774,7 +774,7 @@ const storySchema: StorySchema = {
       name: 'The mist learns to listen',
       weight: 6,
       iconAssetId: 'forest',
-      prompt: 'Fresh grave mist and broken pines show the undead are close enough to hear careless breath.',
+      prompt: 'Cold mist and broken pines show the dead are close enough to hear careless breath.',
       objectiveNodeId: 'barrow-crypt',
       choices: [
         {
@@ -789,7 +789,7 @@ const storySchema: StorySchema = {
           requiresItemId: 'grave-spade',
           consequenceHint: 'The route avoids the worst of the listening dead.',
           effects: [
-            { type: 'remember', text: 'The grave mist thickens around disturbed royal dead.' },
+            { type: 'remember', text: 'The mist thickens around disturbed royal dead.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -803,7 +803,7 @@ const storySchema: StorySchema = {
           tone: 'reckless',
           consequenceHint: 'She reaches the barrow road, but the mist takes its price from her breath and skin.',
           effects: [
-            { type: 'damage', amount: 3, reason: 'The grave mist burned cold where it touched living skin.' },
+            { type: 'damage', amount: 3, reason: 'The cold mist burned where it touched living skin.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -818,7 +818,7 @@ const storySchema: StorySchema = {
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'sergeant-maud',
-        name: 'Sergeant Magda',
+        name: 'Sergeant Maud',
         role: 'Deserter with a borrowed sword',
         description: 'A hollow-cheeked veteran whose shame has hardened into toll-taking.',
         voice: 'dry, threatening, tired beneath the threat',
@@ -831,13 +831,13 @@ const storySchema: StorySchema = {
           label: 'Tell the deserters what walks in royal colors',
           optionSummary: 'Use the deserters’ own fear and experience to make the roadblock feel pointless.',
           writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
-          actionPrompt: 'The selected option is to tell Sergeant Magda about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
+          actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
           mode: 'say',
           tone: 'direct',
           skillTags: ['plain-speech'],
           consequenceHint: 'The deserters do not become kind, but they stop blocking the road.',
           effects: [
-            { type: 'remember', text: 'The lich may be raising royal dead first because old commands still cling to them.' },
+            { type: 'remember', text: 'The royal dead may be walking first because old commands still cling to them.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -861,43 +861,43 @@ const storySchema: StorySchema = {
     },
     {
       id: 'bone-charm-glimpse',
-      name: 'The Bone Charm shows itself',
+      name: 'The bone token shows itself',
       weight: 4,
       iconAssetId: 'keep',
-      prompt: 'The lich turns toward its ritual, revealing a fingerbone charm threaded with silver wire beneath its robes.',
+      prompt: 'A dead man in rotted finery turns toward the bell, revealing a fingerbone token threaded with silver wire beneath its robes.',
       objectiveNodeId: 'king-return',
       choices: [
         {
           id: 'hook-charm-with-spade',
-          label: "Hook the Bone Charm with Tamsin's Shovel",
+          label: "Hook the Bone Token with Tamsin's Shovel",
           optionSummary: 'Use reach and leverage to take the charm without barehanded contact.',
           writerIntent: 'Offer a risky tool-use option with a health cost.',
-          actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Charm away from the lich without touching it barehanded.",
+          actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Token away from the dead man without touching it barehanded.",
           mode: 'use-item',
           tone: 'reckless',
           skillTags: ['steady-hands'],
           requiresItemId: 'grave-spade',
-          consequenceHint: 'The charm comes free, but the lich’s cold tears at Tamsin as it passes.',
+          consequenceHint: 'The token comes free, but the corpse’s cold tears at Tamsin as it passes.',
           effects: [
             { type: 'gainItem', item: boneCharm },
-            { type: 'damage', amount: 2, reason: 'The lich’s cold bit through the spade haft.' },
-            { type: 'remember', text: 'The Bone Charm is the lich’s anchor and proof of its ending.' },
+            { type: 'damage', amount: 2, reason: 'The corpse’s cold bit through the spade haft.' },
+            { type: 'remember', text: 'The Bone Token may be the proof that someone has been using the dead.' },
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
         },
         {
           id: 'speak-burial-name',
-          label: 'Speak the burial name and reach for the charm',
-          optionSummary: 'Use the burial name as ritual pressure, then take the opening it creates.',
-          writerIntent: 'Offer a reflective ritual option grounded in grave-lore without inventing exact spoken words.',
-          actionPrompt: 'The selected option is to invoke the burial name from the rite and reach for the charm while the lich hesitates.',
+          label: 'Speak the burial name and reach for the token',
+          optionSummary: 'Use the burial name to make the dead pause, then take the opening it creates.',
+          writerIntent: 'Offer a reflective burial-knowledge option without inventing exact spoken words.',
+          actionPrompt: 'The selected option is to invoke the burial name and reach for the token while the dead man hesitates.',
           mode: 'say',
           tone: 'reflective',
           skillTags: ['grave-lore'],
-          consequenceHint: 'The name weakens the lich long enough for Tamsin to take proof.',
+          consequenceHint: 'The name stills the dead long enough for Tamsin to take proof.',
           effects: [
             { type: 'gainItem', item: boneCharm },
-            { type: 'remember', text: 'Naming the dead can slow even a deathless thing when the rite is true.' },
+            { type: 'remember', text: 'Naming the dead can slow them when the old burial customs still hold.' },
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
         },
@@ -908,40 +908,40 @@ const storySchema: StorySchema = {
       name: 'The dead rise to the wrong bell',
       weight: 10,
       iconAssetId: 'keep',
-      prompt: 'The lich begins raising another host in Kurhan Crypt while a cracked burial bell swings without its missing voice.',
+      prompt: 'The dead begin rising again in the Old Barrow while a cracked burial bell swings without its missing voice.',
       objectiveNodeId: 'king-return',
       choices: [
         {
           id: 'restore-bell-and-break-charm',
-          label: 'Restore the bell and break the Bone Charm',
-          optionSummary: 'Complete the ritual mechanism and use it against the lich’s host.',
-          writerIntent: 'Offer the strongest prepared ritual solution for players who found the clapper.',
-          actionPrompt: 'The selected option is to set the Silver Bell Clapper into the burial bell, ring the ritual, and break the Bone Charm as the dead turn toward the sound.',
+          label: 'Restore the bell and break the Bone Token',
+          optionSummary: 'Make the burial bell whole and use it to turn the dead away.',
+          writerIntent: 'Offer the strongest prepared burial-custom solution for players who found the clapper.',
+          actionPrompt: 'The selected option is to set the Silver Bell Clapper into the burial bell, ring it, and break the Bone Token as the dead turn toward the sound.',
           mode: 'use-item',
           tone: 'careful',
           skillTags: ['grave-lore', 'steady-hands'],
           requiresItemId: 'bell-clapper',
-          consequenceHint: 'The rite takes hold because the bell is whole and the charm is exposed.',
+          consequenceHint: 'The custom takes hold because the bell is whole and the token is exposed.',
           effects: [
             { type: 'gainItem', item: boneCharm },
-            { type: 'remember', text: 'The burial bell rang whole, and the lich’s host lost the command that held it upright.' },
+            { type: 'remember', text: 'The burial bell rang whole, and the dead lost whatever command held them upright.' },
             { type: 'setFlag', flag: 'lich-ended', value: true },
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
         },
         {
           id: 'bind-crypt-with-iron',
-          label: 'Bind the crypt door with scavenged iron',
-          optionSummary: 'Use scavenged iron for containment when a clean ending is not available.',
+          label: 'Bar the barrow door with scavenged iron',
+          optionSummary: 'Use scavenged iron to hold the door when a clean ending is not available.',
           writerIntent: 'Offer a costly fallback that can still carry the story forward.',
-          actionPrompt: 'The selected option is to use every available scrap of iron to bind the crypt door and trap the ritual long enough to escape with proof.',
+          actionPrompt: 'The selected option is to use every available scrap of iron to bar the barrow door long enough to escape with proof.',
           mode: 'use-item',
           tone: 'reckless',
           requiresItemId: 'cracked-spear-head',
           consequenceHint: 'The binding is brutal and temporary, but it buys a path back to the king with evidence.',
           effects: [
             { type: 'loseItem', itemId: 'cracked-spear-head' },
-            { type: 'damage', amount: 4, reason: 'The crypt fought the binding with dead hands and flying stone.' },
+            { type: 'damage', amount: 4, reason: 'The barrow fought back with dead hands and falling stone.' },
             { type: 'gainItem', item: boneCharm },
             { type: 'setFlag', flag: 'lich-contained', value: true },
             { type: 'moveToNode', nodeId: 'king-return' },
@@ -954,7 +954,7 @@ const storySchema: StorySchema = {
       name: 'Proof dirties the throne room',
       weight: 10,
       iconAssetId: 'lantern',
-      prompt: 'Tamsin returns to King Osric with mud, wounds, and whatever proof she could carry from the barrow dark.',
+      prompt: 'Tamsin returns to King Osric with mud, wounds, and whatever proof she could carry from under the hill.',
       choices: [
         {
           id: 'lay-proof-before-king',
@@ -965,7 +965,7 @@ const storySchema: StorySchema = {
           mode: 'act',
           tone: 'direct',
           requiresItemId: 'bone-charm',
-          consequenceHint: 'The court understands the lich is ended or contained because Tamsin brought back the thing that held it.',
+          consequenceHint: 'The court understands the dead were not only rumor because Tamsin brought back proof from the barrow.',
           effects: [
             { type: 'remember', text: 'Tamsin returned with proof and made the king look at what his command cost.' },
             { type: 'setFlag', flag: 'proof-delivered', value: true },
@@ -1089,9 +1089,9 @@ function getNodeTypeLabel(nodeType: StoryNodeType) {
     road: 'Road',
     wilds: 'Wilds',
     watch: 'Watchpoint',
-    crypt: 'Crypt',
+    crypt: 'Barrow',
     court: 'Court',
-    ritual: 'Ritual site',
+    ritual: 'Burial site',
     hazard: 'Danger',
     mystery: 'Unknown',
   }
@@ -1319,7 +1319,7 @@ function getCurrentObjective(state: CampaignState) {
 
   const goalNode = getNode(storySchema.goalNodeId)
 
-  return `Find proof of the lich and return to ${goalNode.publicName}.`
+  return `Find proof of what is stirring the graves and return to ${goalNode.publicName}.`
 }
 
 function getAdjacentTravelTargets(state: CampaignState) {
@@ -1744,7 +1744,7 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
 
 const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
 const playerAgencyRule = 'Do not write the player character’s private thoughts, feelings, doubts, motives, exact speech, or unchosen actions. Only frame, resolve, or respond to the selected option as stated.'
-const groundedMedievalRule = 'For texture, favor grounded medieval hardship, practical social friction, and original Polish-inspired place or character names already present in the schema; do not copy or evoke any specific external work.'
+const groundedMedievalRule = 'For texture, favor grounded medieval hardship, plain names, practical social friction, and simple burial customs; do not copy or evoke any specific external work.'
 
 function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
   const node = getNode(state.currentNodeId)
@@ -2366,7 +2366,7 @@ function ChoicePanel({
       <Card className="iff-chrome-panel">
         <CardContent>
           <Button type="button" size="lg" onClick={onContinue} disabled={!canContinue} className="w-full font-serif text-base">
-            {canContinue ? 'Turn the page' : 'Setting the next line…'}
+            {canContinue ? 'Continue' : <><LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />Thinking</>}
           </Button>
         </CardContent>
       </Card>
@@ -2383,7 +2383,7 @@ function ChoicePanel({
         <CardContent>
           <Button type="button" size="lg" onClick={onBeginScene} disabled={isAdvancing} className="w-full font-serif text-base">
             <PlayIcon data-icon="inline-start" />
-            {isAdvancing ? 'Preparing the scene…' : 'Begin scene'}
+            {isAdvancing ? 'Preparing the scene…' : 'Begin'}
           </Button>
         </CardContent>
       </Card>
@@ -2492,7 +2492,6 @@ function CharacterPanel({
     <Card className="iff-chrome-panel min-h-0 lg:h-full">
       <CardHeader className="shrink-0">
         <CardTitle className="text-2xl">Character</CardTitle>
-        <CardDescription className="font-serif">Tamsin, her condition, and what she carries.</CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
         <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-[var(--color-border)] bg-background p-5 lg:max-h-none">
@@ -2600,7 +2599,7 @@ function StorySelectionScreen({ onSelect }: { onSelect: () => void }) {
             <p className="mt-2 font-serif text-lg">{storySchema.player.name}, {storySchema.player.role}</p>
           </div>
           <Button type="button" size="lg" onClick={onSelect}>
-            Select story
+            Select
           </Button>
         </CardContent>
       </Card>
