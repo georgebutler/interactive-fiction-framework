@@ -96,9 +96,17 @@ type StoryEvent = {
   weight: number
   iconAssetId: StoryIconId
   prompt: string
+  currentHint?: string
   objectiveNodeId?: string
   npcTemplate?: StoryNpcTemplate
   choices: StoryChoice[]
+}
+
+type StoryObjective = {
+  summary: string
+  successCondition: string
+  failureCondition: string
+  currentHint?: string
 }
 
 type StoryNpcTemplate = {
@@ -167,6 +175,7 @@ type StorySchema = {
   id: string
   title: string
   premise: string
+  objective: StoryObjective
   openingNarration: string
   victoryResolution: string
   defeatResolution: string
@@ -226,6 +235,7 @@ type CampaignState = {
   feed: FeedEntry[]
   debugFeed: DebugEntry[]
   flags: Record<string, boolean>
+  canonicalFacts: Record<string, string>
   outcome: 'running' | 'won' | 'lost'
 }
 
@@ -364,6 +374,12 @@ const storySchema: StorySchema = {
   id: 'kings-lich-playable',
   title: 'The Open Graves',
   premise: 'A royal order sends a practical gravedigger through opened graves, frightened villages, and a court that would rather call sacrifice service.',
+  objective: {
+    summary: 'Follow the opened graves back to the thing stirring them, survive, and return with proof the court cannot bury.',
+    successCondition: 'Reach Graymere Hall Return with proof from the Old Barrow and make the king acknowledge it.',
+    failureCondition: 'Die, or let the king’s deadline pass before proof reaches the hall.',
+    currentHint: 'Answer the royal order, then follow the opened graves out of Graymere Hall.',
+  },
   openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
   victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
   defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
@@ -549,6 +565,7 @@ const storySchema: StorySchema = {
       weight: 4,
       iconAssetId: 'road',
       prompt: 'King Osric gives Tamsin a stamped writ and commands her to follow the opened graves back to their master.',
+      currentHint: 'Get the order into plain words before choosing which road leaves the hall.',
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
         id: 'king-osric',
@@ -600,6 +617,7 @@ const storySchema: StorySchema = {
       weight: 5,
       iconAssetId: 'lantern',
       prompt: 'The armory clerk gives Tamsin a spear with a split shaft and waits for her to accept the insult quietly.',
+      currentHint: 'Secure something useful before the road makes the court’s insult dangerous.',
       objectiveNodeId: 'old-watchtower',
       choices: [
         {
@@ -639,6 +657,7 @@ const storySchema: StorySchema = {
       weight: 3,
       iconAssetId: 'crossroads',
       prompt: 'A farmer blocks the road with a child behind him and asks whether Tamsin has come to bury the village or save it.',
+      currentHint: 'Listen for what the farms know about the first opened grave.',
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
         id: 'farmer-riel',
@@ -687,6 +706,7 @@ const storySchema: StorySchema = {
       weight: 2,
       iconAssetId: 'forest',
       prompt: 'Tamsin reaches a farm where old graves gape open and someone is trapped beneath a root cellar door.',
+      currentHint: 'Control the danger long enough to learn what came from the east.',
       objectiveNodeId: 'blackpine-road',
       npcTemplate: {
         id: 'miller-joan',
@@ -739,6 +759,7 @@ const storySchema: StorySchema = {
       weight: 5,
       iconAssetId: 'codex',
       prompt: 'A hermit at the old watchtower says the dead began walking after someone stole from a burial bell under the hill.',
+      currentHint: 'Turn the hermit’s ugly warning into a practical way into the barrow.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'old-perrin',
@@ -788,6 +809,7 @@ const storySchema: StorySchema = {
       weight: 6,
       iconAssetId: 'forest',
       prompt: 'Cold mist and broken pines show the dead are close enough to hear careless breath.',
+      currentHint: 'Keep moving toward the barrow without letting the mist decide the route.',
       objectiveNodeId: 'barrow-crypt',
       choices: [
         {
@@ -827,6 +849,7 @@ const storySchema: StorySchema = {
       weight: 2,
       iconAssetId: 'crossroads',
       prompt: 'Hungry deserters demand Tamsin hand over food, tools, and the writ before entering the dead country.',
+      currentHint: 'Get past the deserters with enough strength and proof-seeking tools intact.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
         id: 'sergeant-maud',
@@ -876,6 +899,7 @@ const storySchema: StorySchema = {
       weight: 4,
       iconAssetId: 'keep',
       prompt: 'A dead man in rotted finery turns toward the bell, revealing a fingerbone token threaded with silver wire beneath its robes.',
+      currentHint: 'Take proof from the barrow without giving the dead another body to carry.',
       objectiveNodeId: 'king-return',
       choices: [
         {
@@ -918,6 +942,7 @@ const storySchema: StorySchema = {
       weight: 10,
       iconAssetId: 'keep',
       prompt: 'The dead begin rising again in the Old Barrow while a cracked burial bell swings without its missing voice.',
+      currentHint: 'Break the command over the dead, or escape with proof before the barrow closes.',
       objectiveNodeId: 'king-return',
       choices: [
         {
@@ -963,6 +988,7 @@ const storySchema: StorySchema = {
       weight: 10,
       iconAssetId: 'lantern',
       prompt: 'Tamsin returns to King Osric with mud, wounds, and whatever proof she could carry from under the hill.',
+      currentHint: 'Make the proof public enough that the court cannot rename it service.',
       choices: [
         {
           id: 'lay-proof-before-king',
@@ -1031,6 +1057,9 @@ const initialState: CampaignState = {
   ],
   debugFeed: [],
   flags: {},
+  canonicalFacts: {
+    [getNode('graymere-yard').publicName]: getFirstSentence(storySchema.openingNarration),
+  },
   outcome: 'running',
 }
 
@@ -1060,6 +1089,28 @@ function splitFeedLines(text: string) {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+}
+
+function getFirstSentence(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const sentenceMatch = normalized.match(/^.+?[.!?](?=\s|$)/)
+
+  return (sentenceMatch?.[0] ?? normalized).slice(0, 240)
+}
+
+function setCanonicalFact(facts: CampaignState['canonicalFacts'], subject: string, fact: string | undefined) {
+  const cleanSubject = subject.trim()
+  const cleanFact = fact?.replace(/\s+/g, ' ').trim()
+
+  if (!cleanSubject || !cleanFact || facts[cleanSubject]) {
+    return facts
+  }
+
+  return { ...facts, [cleanSubject]: getFirstSentence(cleanFact) }
+}
+
+function getNpcCanonicalFact(npc: StoryNpcTemplate) {
+  return npc.description
 }
 
 function getActiveAnimatedEntry(state: CampaignState) {
@@ -1299,12 +1350,6 @@ function getUnfinishedBusinessReason(state: CampaignState) {
 }
 
 function getCurrentObjective(state: CampaignState) {
-  const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
-
-  if (unfinishedBusinessReason) {
-    return unfinishedBusinessReason
-  }
-
   if (state.outcome === 'won') {
     return 'The proof has been delivered; the hall now has to hear the dead by name.'
   }
@@ -1313,19 +1358,21 @@ function getCurrentObjective(state: CampaignState) {
     return 'Tamsin can go no farther; the dead keep walking under orders no one will admit giving.'
   }
 
-  if (state.currentEvent?.objectiveNodeId) {
-    const objectiveNode = getNode(state.currentEvent.objectiveNodeId)
+  const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
 
-    return `Resolve “${state.currentEvent.name}” and move toward ${objectiveNode.publicName}.`
+  if (unfinishedBusinessReason) {
+    return unfinishedBusinessReason
   }
 
-  if (state.currentEvent) {
-    return `Resolve “${state.currentEvent.name}” before pushing deeper into the route.`
+  if (state.currentEvent?.currentHint) {
+    return state.currentEvent.currentHint
   }
 
-  const goalNode = getNode(storySchema.goalNodeId)
+  if (storySchema.objective.currentHint) {
+    return storySchema.objective.currentHint
+  }
 
-  return `Find proof of what is stirring the graves and return to ${goalNode.publicName}.`
+  return storySchema.objective.summary
 }
 
 function getAdjacentTravelTargets(state: CampaignState) {
@@ -1605,7 +1652,28 @@ function getNpcCodexSummary(person: StoryNpcTemplate) {
   return `${person.name} is ${person.role.toLowerCase()}. ${person.description} Wants: ${person.want}`
 }
 
-function getCodexReferenceSummary(reference: CodexReference) {
+function getCanonicalFactForReference(facts: CampaignState['canonicalFacts'], reference: CodexReference) {
+  const directFact = facts[reference.term]
+
+  if (directFact) {
+    return directFact
+  }
+
+  if (reference.type === 'place' && reference.targetId) {
+    const node = getNode(reference.targetId)
+    return facts[node.publicName] ?? facts[node.name]
+  }
+
+  return undefined
+}
+
+function getCodexReferenceSummary(reference: CodexReference, facts?: CampaignState['canonicalFacts']) {
+  const canonicalFact = facts ? getCanonicalFactForReference(facts, reference) : undefined
+
+  if (canonicalFact) {
+    return canonicalFact
+  }
+
   const explicitSummary = codexTermSummaries[reference.term.toLowerCase()]
 
   if (explicitSummary) {
@@ -1696,6 +1764,8 @@ function formatCodexContext(state: CampaignState) {
   const seenEvents = [...new Set(state.eventHistory.map((event) => event.name))]
   const flags = Object.entries(state.flags).filter(([, value]) => value).map(([flag]) => flag)
 
+  const confirmedFacts = Object.entries(state.canonicalFacts).map(([subject, fact]) => `[${subject}]: ${fact}`)
+
   return `Current place: ${currentNode.publicName}
 
 Player:
@@ -1711,7 +1781,10 @@ Seen events:
 ${seenEvents.join(', ') || 'None yet.'}
 
 Known flags:
-${flags.join(', ') || 'None.'}`
+${flags.join(', ') || 'None.'}
+
+Confirmed facts:
+${confirmedFacts.join('\n') || 'None yet.'}`
 }
 
 function formatSceneNpcs(npcs: StoryNpc[]) {
@@ -1724,13 +1797,13 @@ function formatSceneNpcs(npcs: StoryNpc[]) {
 
 function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
   if (!event.npcTemplate) {
-    return { storyNpcs: state.storyNpcs, sceneNpc: undefined }
+    return { storyNpcs: state.storyNpcs, sceneNpc: undefined, canonicalFacts: state.canonicalFacts }
   }
 
   const existingNpc = state.storyNpcs.find((npc) => npc.id === event.npcTemplate?.id)
 
   if (existingNpc) {
-    return { storyNpcs: state.storyNpcs, sceneNpc: existingNpc }
+    return { storyNpcs: state.storyNpcs, sceneNpc: existingNpc, canonicalFacts: state.canonicalFacts }
   }
 
   const sceneNpc: StoryNpc = {
@@ -1740,7 +1813,11 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
     memory: [`Introduced during ${event.name}.`],
   }
 
-  return { storyNpcs: [...state.storyNpcs, sceneNpc], sceneNpc }
+  return {
+    storyNpcs: [...state.storyNpcs, sceneNpc],
+    sceneNpc,
+    canonicalFacts: setCanonicalFact(state.canonicalFacts, sceneNpc.name, getNpcCanonicalFact(sceneNpc)),
+  }
 }
 
 const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
@@ -1757,6 +1834,20 @@ function buildWorldRulesBlock() {
 ${rules.join('\n') || '1. No additional world rules are defined.'}
 These rules cannot be broken by player choices, NPC behaviour, or narrative convenience.
 If a generated passage would violate any rule, rewrite it before outputting.
+---`
+}
+
+function buildObjectivePressureBlock() {
+  return `--- CURRENT OBJECTIVE ---
+The player's goal: ${storySchema.objective.summary}. Your narration should keep this goal felt but not stated — the world should apply pressure toward it without the narrator ever saying "you must" or "remember your mission."
+---`
+}
+
+function buildEstablishedFactsBlock(state: CampaignState) {
+  const facts = Object.entries(state.canonicalFacts)
+
+  return `--- ESTABLISHED FACTS (DO NOT CONTRADICT) ---
+${facts.length > 0 ? facts.map(([subject, fact]) => `[${subject}]: ${fact}`).join('\n') : 'No canonical facts have been confirmed yet.'}
 ---`
 }
 
@@ -1860,6 +1951,10 @@ function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
 
 ${buildWorldRulesBlock()}
 
+${buildObjectivePressureBlock()}
+
+${buildEstablishedFactsBlock(state)}
+
 ${buildWorldTopologyBlock(state)}
 
 ${buildVisitedSceneOpeningRule(state)}
@@ -1900,6 +1995,10 @@ function buildPlayerActionResolutionPrompt(state: CampaignState, event: StoryEve
   return `${gameMasterNarratorFrame}
 
 ${buildWorldRulesBlock()}
+
+${buildObjectivePressureBlock()}
+
+${buildEstablishedFactsBlock(state)}
 
 ${buildWorldTopologyBlock(state)}
 
@@ -1945,6 +2044,10 @@ function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: St
   return `${gameMasterNarratorFrame}
 
 ${buildWorldRulesBlock()}
+
+${buildObjectivePressureBlock()}
+
+${buildEstablishedFactsBlock(state)}
 
 ${buildWorldTopologyBlock(state)}
 
@@ -2005,14 +2108,32 @@ function getVisualNovelLineStyle(line: string) {
 }
 
 function renderAnimatedCharacters(text: string, keyPrefix: string, stagger = false) {
-  return Array.from(text).map((character, index) => (
-    <span key={`${keyPrefix}-${index}`} className="iff-character-reveal" style={stagger ? { animationDelay: `${Math.min(index * 8, 600)}ms` } : undefined}>
-      {character}
-    </span>
-  ))
+  let characterIndex = 0
+
+  return text.split(/(\s+)/).filter(Boolean).map((token, tokenIndex) => {
+    if (/^\s+$/.test(token)) {
+      characterIndex += Array.from(token).length
+      return token
+    }
+
+    return (
+      <span key={`${keyPrefix}-word-${tokenIndex}`} className="inline-block whitespace-nowrap">
+        {Array.from(token).map((character) => {
+          const index = characterIndex
+          characterIndex += 1
+
+          return (
+            <span key={`${keyPrefix}-${index}`} className="iff-character-reveal" style={stagger ? { animationDelay: `${Math.min(index * 8, 600)}ms` } : undefined}>
+              {character}
+            </span>
+          )
+        })}
+      </span>
+    )
+  })
 }
 
-function renderCodexText(text: string, references: CodexReference[], options: { animate?: boolean; stagger?: boolean } = {}) {
+function renderCodexText(text: string, references: CodexReference[], options: { animate?: boolean; stagger?: boolean; canonicalFacts?: CampaignState['canonicalFacts'] } = {}) {
   const renderPart = (part: string, keyPrefix: string) => options.animate ? renderAnimatedCharacters(part, keyPrefix, options.stagger) : part
 
   if (references.length === 0 || text.length === 0) {
@@ -2029,15 +2150,23 @@ function renderCodexText(text: string, references: CodexReference[], options: { 
       return renderPart(part, `text-${index}`)
     }
 
+    const canonicalFact = options.canonicalFacts ? getCanonicalFactForReference(options.canonicalFacts, reference) : undefined
+
     return (
       <Tooltip key={`${part}-${index}`}>
         <TooltipTrigger asChild>
-          <span tabIndex={0} className="codex-term inline cursor-help align-baseline focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-accent)]" aria-label={`${part}: ${getCodexReferenceSummary(reference)}`}>
+          <span tabIndex={0} className="codex-term inline cursor-help align-baseline focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-accent)]" aria-label={`${part}: ${getCodexReferenceSummary(reference, options.canonicalFacts)}`}>
             {renderPart(part, `codex-${index}`)}
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{getCodexReferenceSummary(reference)}</p>
+          <div className="max-w-xs">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{reference.term}</span>
+              {canonicalFact ? <Badge variant="secondary" className="px-1.5 py-0 text-[0.6rem]">Confirmed</Badge> : null}
+            </div>
+            <p>{getCodexReferenceSummary(reference, options.canonicalFacts)}</p>
+          </div>
         </TooltipContent>
       </Tooltip>
     )
@@ -2067,7 +2196,7 @@ function StoryTranscript({
         {state.feed.map((entry, index) => (
           <div key={entry.id}>
             {index > 0 && index % 10 === 0 ? <StoryTurnDivider turn={entry.turn} /> : null}
-            <FeedBlock entry={entry} references={references} onRetry={onRetry} />
+            <FeedBlock entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
           </div>
         ))}
       </div>
@@ -2088,10 +2217,12 @@ function StoryTurnDivider({ turn }: { turn: number }) {
 function FeedBlock({
   entry,
   references,
+  canonicalFacts,
   onRetry,
 }: {
   entry: FeedEntry
   references: CodexReference[]
+  canonicalFacts: CampaignState['canonicalFacts']
   onRetry?: () => void
 }) {
   if (entry.kind === 'location') {
@@ -2143,12 +2274,12 @@ function FeedBlock({
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
                   <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
-                    {renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming })}
+                    {renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming, canonicalFacts })}
                   </span>
                 </p>
               ) : (
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
-                  <span>{renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming })}</span>
+                  <span>{renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming, canonicalFacts })}</span>
                 </p>
               )
             })}
@@ -2484,6 +2615,27 @@ function StatusStrip({
       </Dialog>
       {toast ? <div className="absolute right-3 top-full mt-2 border border-[var(--color-border)] bg-background px-3 py-2 font-sans text-xs shadow-none">{toast}</div> : null}
     </section>
+  )
+}
+
+function ObjectiveStrip({ hint }: { hint?: string }) {
+  const trimmedHint = hint?.trim()
+  const shouldShowHint = Boolean(trimmedHint && trimmedHint !== storySchema.objective.summary)
+
+  return (
+    <Card className="iff-chrome-panel sticky top-4 z-10">
+      <CardContent className="p-4">
+        <p className="ui-label">Current Objective</p>
+        <h2 className="mt-1 font-[var(--font-display)] text-2xl font-light leading-tight">{storySchema.title}</h2>
+        <p className="mt-3 font-serif text-sm leading-6 text-foreground">{storySchema.objective.summary}</p>
+        {shouldShowHint ? (
+          <div className="mt-3 border-l border-[var(--color-border-strong)] pl-3">
+            <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Now</p>
+            <p className="mt-1 font-serif text-sm italic leading-6 text-muted-foreground">{trimmedHint}</p>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -3058,6 +3210,19 @@ function App() {
     })
   }
 
+  const rememberLocationCanonicalFact = (node: StoryNode, narration: string) => {
+    const firstSentence = getFirstSentence(narration)
+
+    if (!firstSentence) {
+      return
+    }
+
+    setCampaign((state) => ({
+      ...state,
+      canonicalFacts: setCanonicalFact(state.canonicalFacts, node.publicName, firstSentence),
+    }))
+  }
+
   const openSceneFromState = async (stateAtStart: CampaignState, leadingFeedEntries: Array<Omit<FeedEntry, 'id'>> = []) => {
     if (isAdvancing || stateAtStart.outcome !== 'running') {
       return
@@ -3074,12 +3239,13 @@ function App() {
       const turn = stateAtStart.turn
       const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
       const node = getNode(stateAtStart.currentNodeId)
-      const { storyNpcs } = getOrCreateEventNpc(stateAtStart, event)
+      const { storyNpcs, canonicalFacts } = getOrCreateEventNpc(stateAtStart, event)
       const sceneState = {
         ...stateAtStart,
         currentEvent: event,
         sceneOpened: true,
         storyNpcs,
+        canonicalFacts,
         eventHistory: stateAtStart.eventHistory.some((seenEvent) => seenEvent.id === event.id) ? stateAtStart.eventHistory : [...stateAtStart.eventHistory, event].slice(-20),
       }
       const feedEntries = leadingFeedEntries.map((entry) => ({ id: createId(entry.kind), ...entry }))
@@ -3108,6 +3274,7 @@ function App() {
 
       const openingText = await streamFeedEntry(currentNarratorEntryId, prompt)
       appendDirectionLintWarning(sceneState, openingText, turn, 'Scene opening')
+      rememberLocationCanonicalFact(node, openingText)
       updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
@@ -3315,6 +3482,8 @@ function App() {
             </CardContent>
           </Card>
 
+          <ObjectiveStrip hint={currentObjective} />
+
           <StatusStrip state={campaign} expanded={inventoryExpanded} healthPulse={healthPulse} toast={statusToast} savedFlash={savedFlash} onToggleInventory={() => setInventoryExpanded((value) => !value)} />
         </aside>
 
@@ -3343,10 +3512,6 @@ function App() {
                         <CardDescription className="mt-2 w-full max-w-none font-serif text-sm leading-6">{currentNode.description}</CardDescription>
                       </div>
                     </CardHeader>
-                    <aside className="iff-objective-card -mt-4 border-b border-[var(--color-border)] bg-muted px-4 py-3 font-serif text-sm leading-6" aria-live="polite">
-                      <span className="ui-label mr-2">Objective</span>
-                      <span className="text-sm italic text-[var(--color-text)]">{currentObjective}</span>
-                    </aside>
                     <CardContent className="min-h-0 flex-1 p-0">
                       <ScrollArea viewportRef={storyScrollRef} onViewportScroll={handleStoryScroll} className="relative h-[min(58svh,620px)] min-h-0 lg:h-full">
                         <div className="p-4 lg:p-6">

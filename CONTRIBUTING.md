@@ -17,16 +17,47 @@ This project is meant to grow through code improvements, sample stories, schemas
 
 ## Story contribution guidelines
 
-When contributing a story sample, include:
+**The player never sees the schema. Every field you define should serve what the player experiences — not what the framework needs to function.**
 
-1. **Premise** — one or two sentences explaining the adventure.
-2. **Playable character** — one protagonist with goals, weaknesses, health points, inventory, voice, and memory seeds.
-3. **Nodes** — locations with public names, descriptions, broad node types, exits, optional travel blockers, optional unfinished business, optional map positions, and weighted event lists.
-4. **Events** — scene pressures with objective nodes, authored choices, deterministic effects, and optional NPC templates.
-5. **Choices** — player-facing options with labels, neutral summaries, writer intent, requirements, skill-color tags, and consequences.
-6. **Codex terms** — important places, people, objects, factions, or ideas.
-7. **Failure pressure** — a believable way the story can go badly.
-8. **Tone** — generic guidance for original narration, such as character-driven investigation, agency-preserving options, and consequence-driven dialogue.
+When contributing a story sample, prepare it in this order:
+
+1. **THE PLAYER'S EXPERIENCE**
+   
+   Describe the fantasy your story delivers to a player who knows nothing about the schema.
+   
+   “The player feels like a lone investigator in a fog-bound coastal town.”
+   
+   “The player feels like a soldier making impossible choices behind enemy lines.”
+   
+   This goes first. If a contributor can't write this sentence, the story isn't ready.
+
+2. **THE WORLD'S RULES (3–5 absolute facts)**
+   
+   What is always true in this world regardless of player action?
+   
+   These become `fixedRules` in the schema and are injected into every generation prompt.
+
+3. **THE MAP (locations and their connections)**
+   
+   Name every location. For each, write one atmospheric sentence that would orient a player who just arrived. Define exits by name and direction — these are fixed forever.
+   
+   Optionally write an `explorationHint` for each exit that leads to an unexplored node.
+
+4. **THE PROTAGONIST**
+   
+   Who is the player character right now, at the start of the story?
+   
+   Not their history — their present: what they carry, what they know, what they fear.
+
+5. **THE PRESSURE**
+   
+   What forces the player to act? What gets worse if they wait?
+   
+   This becomes event weighting and the `objective.failureCondition`.
+
+6. **THE EVENTS & CHOICES**
+   
+   Only after the above are solid, define the authored events and choices.
 
 Stories, prompts, comments, and documentation must be original. Do not ask the model to name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works.
 

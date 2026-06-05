@@ -126,9 +126,11 @@ The current sample schema lives in `src/App.tsx`. The core types are intentional
 
 ### `StorySchema`
 
-Defines the story title, premise, opening narration, goal node, fixed rules, public codex terms, playable protagonist, map nodes, and events.
+Defines the story title, premise, objective, opening narration, goal node, fixed rules, public codex terms, playable protagonist, map nodes, and events.
 
 `fixedRules` are absolute model constraints. Each string should be one world law, written as a prohibition or absolute fact.
+
+`objective` defines the schema-owned quest pressure shown in the HUD and injected into prompts. Keep `summary` to one player-facing sentence; use `successCondition` and `failureCondition` to define deterministic end pressure; use optional `currentHint` or event-level `currentHint` for immediate contextual direction.
 
 ### `PlayableCharacter`
 
@@ -223,6 +225,7 @@ Tracks runtime play state:
 - Debug entries
 - Explored nodes
 - Flags
+- Canonical facts confirmed by first-authored or first-generated descriptions
 - Outcome
 
 ## Prompting and safety rules
