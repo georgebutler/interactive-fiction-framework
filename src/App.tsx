@@ -247,7 +247,8 @@ type LlmSettings = {
 }
 
 type AppPhase = 'story-select' | 'protagonist-intro' | 'playing'
-type ThemeMode = 'light' | 'dark'
+type ResolvedThemeMode = 'light' | 'dark'
+type ThemeMode = ResolvedThemeMode | 'system'
 type OllamaStatus = 'checking' | 'connected' | 'unreachable'
 
 type CodexReference = {
@@ -1048,6 +1049,18 @@ const defaultLlmSettings: LlmSettings = {
 const llmSettingsStorageKey = 'iff:llm-settings'
 const themeStorageKey = 'iff:theme'
 const allKnownItems = [graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm]
+
+function getSystemThemeMode(): ResolvedThemeMode {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function getNextThemeMode(themeMode: ThemeMode): ThemeMode {
+  if (themeMode === 'system') {
+    return getSystemThemeMode() === 'dark' ? 'light' : 'dark'
+  }
+
+  return themeMode === 'dark' ? 'light' : 'dark'
+}
 
 const initialState: CampaignState = {
   turn: 1,
@@ -3013,13 +3026,14 @@ function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     try {
       const saved = window.localStorage.getItem(themeStorageKey) as ThemeMode | null
-      if (saved === 'light' || saved === 'dark') return saved
+      if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
     } catch {
       // Ignore localStorage read failures.
     }
 
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return 'system'
   })
+  const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(() => getSystemThemeMode())
   const [appPhase, setAppPhase] = useState<AppPhase>('story-select')
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
@@ -3046,10 +3060,26 @@ function App() {
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
   const activeAnimatedEntry = useMemo(() => getActiveAnimatedEntry(campaign), [campaign])
+  const resolvedThemeMode = themeMode === 'system' ? systemThemeMode : themeMode
 
   useEffect(() => {
-    document.documentElement.dataset.theme = themeMode
+    document.documentElement.dataset.theme = resolvedThemeMode
+    document.documentElement.dataset.themePreference = themeMode
     window.localStorage.setItem(themeStorageKey, themeMode)
+  }, [resolvedThemeMode, themeMode])
+
+  useEffect(() => {
+    if (themeMode !== 'system') {
+      return
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const updateSystemTheme = () => setSystemThemeMode(mediaQuery.matches ? 'dark' : 'light')
+
+    updateSystemTheme()
+    mediaQuery.addEventListener('change', updateSystemTheme)
+
+    return () => mediaQuery.removeEventListener('change', updateSystemTheme)
   }, [themeMode])
 
   useEffect(() => {
@@ -3487,9 +3517,9 @@ function App() {
                   {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check settings'}
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => theme === 'dark' ? 'light' : 'dark')}>
-                    {themeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
-                    {themeMode === 'dark' ? 'Light' : 'Dark'}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
+                    {resolvedThemeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
+                    {resolvedThemeMode === 'dark' ? 'Light' : 'Dark'}
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
                     <SettingsIcon data-icon="inline-start" />

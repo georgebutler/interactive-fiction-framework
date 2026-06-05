@@ -64,6 +64,35 @@
   --sidebar-ring: var(--ring);
 }
 
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-base: #F3EFE5;
+  --color-surface: #FBF7ED;
+  --color-surface-raised: #FFFDF7;
+  --color-surface-hover: #E9E1D2;
+  --color-border: #D6CBB9;
+  --color-border-subtle: #E5DCCC;
+  --color-border-strong: #B9AA92;
+  --color-text: #211E18;
+  --color-text-muted: #6F6557;
+  --color-text-dim: #9A8E7A;
+  --color-accent: #7A5F37;
+  --color-accent-dim: #CDBB9B;
+  --color-health-high: #4F6D4A;
+  --color-health-mid: #9A6B18;
+  --color-health-low: #A33B35;
+  --color-say: #3F708A;
+  --color-ask: #4F7A5E;
+  --color-act: #9A5F31;
+  --color-risk: #9A4545;
+  --color-wait: #6D5A84;
+  --color-use: #7B743A;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
@@ -76,6 +105,24 @@ body {
   margin: 0;
   background: var(--color-base);
   color: var(--color-text);
+}
+
+html,
+body,
+.iff-app-shell,
+.iff-chrome-panel,
+.iff-stage-card,
+.iff-transcript,
+button,
+input,
+textarea,
+select {
+  transition:
+    background-color 220ms ease,
+    background 220ms ease,
+    border-color 220ms ease,
+    color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 ::-webkit-scrollbar {
@@ -259,6 +306,19 @@ body {
 
   .iff-choice-card:active:not(:disabled) {
     transform: none;
+  }
+
+  html,
+  body,
+  .iff-app-shell,
+  .iff-chrome-panel,
+  .iff-stage-card,
+  .iff-transcript,
+  button,
+  input,
+  textarea,
+  select {
+    transition: none;
   }
 }
 
