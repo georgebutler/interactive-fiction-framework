@@ -1878,9 +1878,19 @@ function getVisualNovelLineStyle(line: string) {
   return { text, className: '' }
 }
 
-function renderCodexText(text: string, references: CodexReference[]) {
+function renderAnimatedCharacters(text: string, keyPrefix: string, stagger = false) {
+  return Array.from(text).map((character, index) => (
+    <span key={`${keyPrefix}-${index}`} className="iff-character-reveal" style={stagger ? { animationDelay: `${Math.min(index * 8, 600)}ms` } : undefined}>
+      {character}
+    </span>
+  ))
+}
+
+function renderCodexText(text: string, references: CodexReference[], options: { animate?: boolean; stagger?: boolean } = {}) {
+  const renderPart = (part: string, keyPrefix: string) => options.animate ? renderAnimatedCharacters(part, keyPrefix, options.stagger) : part
+
   if (references.length === 0 || text.length === 0) {
-    return text
+    return renderPart(text, 'text')
   }
 
   const matcher = new RegExp(`(${references.map((reference) => escapeRegExp(reference.term)).join('|')})`, 'gi')
@@ -1890,14 +1900,14 @@ function renderCodexText(text: string, references: CodexReference[]) {
     const reference = references.find((candidate) => candidate.term.toLowerCase() === part.toLowerCase())
 
     if (!reference) {
-      return part
+      return renderPart(part, `text-${index}`)
     }
 
     return (
       <Tooltip key={`${part}-${index}`}>
         <TooltipTrigger asChild>
           <span tabIndex={0} className="codex-term inline cursor-help align-baseline focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-accent)]" aria-label={`${part}: ${getCodexReferenceSummary(reference)}`}>
-            {part}
+            {renderPart(part, `codex-${index}`)}
           </span>
         </TooltipTrigger>
         <TooltipContent>
@@ -1996,13 +2006,13 @@ function FeedBlock({
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
                   <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
-                    {renderCodexText(displayedText, references)}
+                    {renderCodexText(displayedText, references, { animate: true, stagger: !entry.streaming })}
                     {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                   </span>
                 </p>
               ) : (
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
-                  <span>{renderCodexText(displayedText, references)}</span>
+                  <span>{renderCodexText(displayedText, references, { animate: true, stagger: !entry.streaming })}</span>
                   {entry.streaming && index === renderedLines.length - 1 ? <span className="ml-1 animate-pulse font-sans text-foreground">▌</span> : null}
                 </p>
               )
@@ -2839,7 +2849,6 @@ function App() {
   }
 
   const streamFeedEntry = async (entryId: string, prompt: string) => {
-    let pendingLine = ''
     const appendGeneratedText = (text: string) => {
       updateFeedEntry(entryId, (entry) => {
         const generatedText = `${entry.generatedText ?? entry.text}${text}`
@@ -2853,13 +2862,7 @@ function App() {
     }
     const fullText = await streamLocalText(llmSettings, prompt, async (chunk) => {
       for (const character of chunk) {
-        pendingLine += character
-        const lines = pendingLine.split('\n')
-        pendingLine = lines.pop() ?? ''
-
-        if (lines.length > 0) {
-          appendGeneratedText(`${lines.join('\n')}\n`)
-        }
+        appendGeneratedText(character)
 
         const delay = getTypewriterDelay(character)
         if (delay > 0) {
@@ -2867,10 +2870,6 @@ function App() {
         }
       }
     })
-
-    if (pendingLine.trim().length > 0) {
-      appendGeneratedText(pendingLine)
-    }
 
     return fullText
   }

@@ -115,6 +115,20 @@ body {
   49%, 100% { opacity: 0; }
 }
 
+@keyframes iff-character-reveal {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(0.08em);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
 @keyframes iff-health-damage {
   0% { background: transparent; }
   35% { background: color-mix(in oklch, var(--destructive) 28%, transparent); }
@@ -155,6 +169,13 @@ body {
 
 .iff-log-line .animate-pulse {
   animation: iff-cursor-blink 1s step-end infinite;
+}
+
+.iff-character-reveal {
+  display: inline-block;
+  white-space: pre-wrap;
+  animation: iff-character-reveal 180ms ease-out both;
+  will-change: opacity, filter, transform;
 }
 
 .iff-health-damage {
@@ -238,6 +259,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .iff-log-line,
+  .iff-character-reveal,
   .iff-scene-character,
   .iff-objective-card,
   .iff-state-pulse {
