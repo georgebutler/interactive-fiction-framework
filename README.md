@@ -2,7 +2,7 @@
 
 **Interactive Fiction Framework (IFF)** is a local-first React framework for playable, schema-driven interactive fiction.
 
-IFF combines authored story structure with local LLM narration. Writers define the protagonist, places, events, choices, inventory, consequences, and memory. The model adds prose, but the code owns state: health, items, map movement, revealed locations, flags, and endings stay deterministic.
+IFF combines authored story structure with local LLM narration. Writers define the protagonist, places, events, choices, inventory, consequences, and memory. The model adds prose and maintains the protagonist’s visible condition as text, while the code owns deterministic state such as items, map movement, revealed locations, flags, and endings.
 
 The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sent by royal order to investigate opened graves around Redvale. The story is grounded medieval fiction: the “lich” is treated as rumor, fear, or an explanation people reach for rather than a guaranteed answer.
 
@@ -10,13 +10,12 @@ The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sen
 
 - Presents a playable protagonist rather than an autonomous party.
 - Streams story prose from a local Ollama model.
-- Reveals text progressively, with line gating and animated character fade-in.
 - Keeps player agency intact by offering authored options instead of asking the model to choose for the player.
-- Tracks deterministic state such as health, inventory, flags, known NPCs, revealed map nodes, and outcomes.
+- Tracks deterministic state such as inventory, flags, known NPCs, revealed map nodes, and outcomes, while showing condition as prose.
 - Provides a tabbed play view for **Story**, **Map**, and **Character**.
 - Shows codex tooltips inline for known places, people, objects, and rumors.
 - Includes a top-down interactive map with discovered routes, unknown route hints, optional selection, and travel buttons.
-- Includes a character page with health, biography, memories, and a scrollable inventory.
+- Includes a character page with condition text, biography, memories, and a scrollable inventory.
 - Runs locally against Ollama; no hosted model API is required.
 
 ## Current sample
@@ -101,15 +100,12 @@ The main play screen is split into a compact left column and a tabbed story area
 - Ollama connection status
 - Light/dark toggle
 - Settings button
-- Compact status strip with HP and inventory access
 
 ### Story tab
 
 - Current location and objective
 - Full-width story log
 - Inline codex tooltips for known terms
-- Progressive line reveals
-- Animated character-by-character text appearance
 - A contextual action panel with labels like `Continue`, `Begin`, and `What will Tamsin do next?`
 
 ### Map tab
@@ -145,7 +141,7 @@ Defines the character the user plays:
 
 - Name and role
 - Portrait
-- Health
+- Current condition text
 - Inventory
 - Skill tags
 - Voice guidance
@@ -203,7 +199,6 @@ Write action choices as imperatives. The player should feel they are issuing a c
 Effects are the source of truth for state changes. Generated prose may describe what happens, but effects decide what actually changes:
 
 - Gain or lose items
-- Damage or heal the player
 - Remember facts
 - Reveal nodes
 - Move to nodes
@@ -225,7 +220,6 @@ Defines reusable NPC data for generated scenes and codex summaries:
 
 Tracks runtime play state:
 
-- Turn count
 - Player state
 - Current node and event
 - Scene open/closed state
@@ -242,7 +236,8 @@ Tracks runtime play state:
 IFF uses prompt rules to preserve player agency:
 
 - Do not write the player character’s private thoughts, feelings, motives, exact speech, or unchosen actions.
-- Do not invent health, inventory, map movement, victory, loss, or hidden discoveries.
+- Do not invent inventory, map movement, victory, loss, or hidden discoveries.
+- Describe visible condition changes naturally, without HP, bars, levels, numbers, or percentages.
 - Do not reveal future places, hidden routes, or event tables early.
 - If a choice is conversational, summarize intent rather than inventing full player dialogue.
 - Keep all story material original; do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, or signature passages.

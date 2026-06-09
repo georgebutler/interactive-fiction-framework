@@ -8,17 +8,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-
-type Health = {
-  current: number
-  max: number
-}
 
 type InventoryItem = {
   id: string
@@ -51,7 +44,7 @@ type PlayableCharacter = {
   role: string
   portraitAsset: string
   color: string
-  health: Health
+  condition: string
   inventory: InventoryItem[]
   skillTags: SkillTag[]
   voice: PlayerVoice
@@ -68,8 +61,6 @@ type StoryNodeType = 'origin' | 'settlement' | 'road' | 'wilds' | 'watch' | 'cry
 type StoryEffect =
   | { type: 'gainItem'; item: InventoryItem }
   | { type: 'loseItem'; itemId: string }
-  | { type: 'damage'; amount: number; reason: string }
-  | { type: 'heal'; amount: number; reason: string }
   | { type: 'remember'; text: string }
   | { type: 'revealNode'; nodeId: string }
   | { type: 'moveToNode'; nodeId: string }
@@ -183,7 +174,6 @@ type StorySchema = {
   victoryResolution: string
   defeatResolution: string
   goalNodeId: string
-  maxTurns: number
   designNote: string
   /**
    * Each string is one world law, written as a prohibition or absolute fact.
@@ -199,14 +189,12 @@ type StorySchema = {
 
 type FeedEntry = {
   id: string
-  turn: number
   kind: 'narration' | 'dialogue' | 'selected' | 'consequence' | 'system' | 'location' | 'error'
   speaker?: string
   text: string
   content?: {
     name: string
     nodeType: StoryNodeType
-    turn: number
   }
   generatedText?: string
   nodeId?: string
@@ -218,14 +206,12 @@ type FeedEntry = {
 
 type DebugEntry = {
   id: string
-  turn: number
   label?: string
   text: string
   streaming?: boolean
 }
 
 type CampaignState = {
-  turn: number
   player: PlayableCharacter
   storyNpcs: StoryNpc[]
   currentNodeId: string
@@ -400,20 +386,20 @@ const storySchema: StorySchema = {
   objective: {
     summary: 'Follow the opened graves back to the thing stirring them, survive, and return with proof the court cannot bury.',
     successCondition: 'Reach Graymere Hall Return with proof from the Old Barrow and make the king acknowledge it.',
-    failureCondition: 'Die, or let the king’s deadline pass before proof reaches the hall.',
+    failureCondition: 'Return without proof, abandon the investigation, or let the court bury the truth again.',
     currentHint: 'Answer the royal order, then follow the opened graves out of Graymere Hall.',
   },
   openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
   victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
   defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
   goalNodeId: 'king-return',
-  maxTurns: 14,
   designNote:
     'A contributor-authored playable story about agency-preserving narration, original scenes, varied authored choices, and lightweight consequences. The local model narrates within the schema; code owns state.',
   fixedRules: [
     'The end user plays the authored protagonist directly.',
     'Authored choices decide what the protagonist can attempt; generated prose may enrich but cannot override mechanical state.',
-    'Health and inventory are visible story state and change only through authored effects.',
+    'Inventory is visible story state and changes only through authored effects.',
+    'The protagonist’s condition is visible prose, never a number, bar, level, or percentage.',
     'The codex is compact known memory for the player and the local narrator.',
     'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
     'All story material and style guidance must remain original and generic, without named protected references.',
@@ -425,7 +411,7 @@ const storySchema: StorySchema = {
     role: 'Gravedigger under royal order',
     portraitAsset: publicDomainPortraitAsset,
     color: '#7dd3fc',
-    health: { current: 20, max: 20 },
+    condition: 'Tired, mud-spattered, and steady enough to keep moving.',
     inventory: [graveSpade, graveAsh, ironNails, royalWrit],
     skillTags: ['grave-lore', 'plain-speech', 'steady-hands'],
     voice: {
@@ -778,7 +764,7 @@ const storySchema: StorySchema = {
           requiresItem: 'grave-ash',
           effects: [
             { type: 'loseItem', itemId: 'grave-ash' },
-            { type: 'damage', amount: 2, reason: 'The dead clawed close while the cellar opened.' },
+            { type: 'remember', text: 'The dead clawed close while the cellar opened.' },
             { type: 'remember', text: 'Holy Water can slow the dead, but only for moments.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
@@ -864,13 +850,13 @@ const storySchema: StorySchema = {
           id: 'run-through-mist',
           label: 'Run before the mist closes',
           neutralSummary: 'You traded safety for speed before the dead fully gathered.',
-          writerIntent: 'Offer a high-risk option with health cost and fast movement.',
+          writerIntent: 'Offer a high-risk option where speed leaves visible strain and danger in the narration.',
           actionPrompt: 'The selected option is to choose speed over silence and break through the mist before the dead fully gather.',
           mode: 'risk',
           displayStyle: 'action',
           skillTags: ['steady-hands'],
           effects: [
-            { type: 'damage', amount: 3, reason: 'The cold mist burned where it touched living skin.' },
+            { type: 'remember', text: 'The cold mist burned where it touched living skin.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -921,7 +907,7 @@ const storySchema: StorySchema = {
           requiresItem: 'armory-knife',
           effects: [
             { type: 'loseItem', itemId: 'armory-knife' },
-            { type: 'heal', amount: 1, reason: 'Avoiding the fight preserves strength.' },
+            { type: 'remember', text: 'Avoiding the fight preserved strength for the road ahead.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
           ],
         },
@@ -940,7 +926,7 @@ const storySchema: StorySchema = {
           id: 'hook-charm-with-spade',
           label: "Hook the Bone Token with Tamsin's Shovel",
           neutralSummary: 'You used reach and leverage to take the charm without barehanded contact.',
-          writerIntent: 'Offer a risky tool-use option with a health cost.',
+          writerIntent: 'Offer a risky tool-use option where the cost is handled through visible narrative consequence.',
           actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Token away from the dead man without touching it barehanded.",
           mode: 'use-item',
           displayStyle: 'action',
@@ -948,7 +934,7 @@ const storySchema: StorySchema = {
           requiresItem: 'grave-spade',
           effects: [
             { type: 'gainItem', item: boneCharm },
-            { type: 'damage', amount: 2, reason: 'The corpse’s cold bit through the spade haft.' },
+            { type: 'remember', text: 'The corpse’s cold bit through the spade haft.' },
             { type: 'remember', text: 'The Bone Token may be the proof that someone has been using the dead.' },
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
@@ -1008,7 +994,7 @@ const storySchema: StorySchema = {
           requiresItem: 'cracked-spear-head',
           effects: [
             { type: 'loseItem', itemId: 'cracked-spear-head' },
-            { type: 'damage', amount: 4, reason: 'The barrow fought back with dead hands and falling stone.' },
+            { type: 'remember', text: 'The barrow fought back with dead hands and falling stone.' },
             { type: 'gainItem', item: boneCharm },
             { type: 'setFlag', flag: 'lich-contained', value: true },
             { type: 'moveToNode', nodeId: 'king-return' },
@@ -1101,6 +1087,7 @@ const defaultLlmSettings: LlmSettings = {
 
 const llmSettingsStorageKey = 'iff:llm-settings'
 const themeStorageKey = 'iff:theme'
+const campaignStorageKey = `iff:${storySchema.id}:run-1`
 const allKnownItems = [graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm]
 
 function getSystemThemeMode(): ResolvedThemeMode {
@@ -1116,7 +1103,6 @@ function getNextThemeMode(themeMode: ThemeMode): ThemeMode {
 }
 
 const initialState: CampaignState = {
-  turn: 1,
   player: storySchema.player,
   storyNpcs: [],
   currentNodeId: 'graymere-yard',
@@ -1127,7 +1113,6 @@ const initialState: CampaignState = {
   feed: [
     {
       id: 'opening',
-      turn: 1,
       kind: 'narration',
       speaker: 'Narrator',
       nodeId: 'graymere-yard',
@@ -1142,15 +1127,14 @@ const initialState: CampaignState = {
   outcome: 'running',
 }
 
-initialState.feed.unshift({ id: 'opening-location', ...createLocationFeedEntry(getNode('graymere-yard'), 1) })
+initialState.feed.unshift({ id: 'opening-location', ...createLocationFeedEntry(getNode('graymere-yard')) })
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function createLocationFeedEntry(node: StoryNode, turn: number): Omit<FeedEntry, 'id'> {
+function createLocationFeedEntry(node: StoryNode): Omit<FeedEntry, 'id'> {
   return {
-    turn,
     kind: 'location',
     speaker: 'Location',
     nodeId: node.id,
@@ -1158,8 +1142,97 @@ function createLocationFeedEntry(node: StoryNode, turn: number): Omit<FeedEntry,
     content: {
       name: node.name,
       nodeType: node.nodeType,
-      turn,
     },
+  }
+}
+
+function normalizePlayableCharacter(saved: unknown): PlayableCharacter {
+  const candidate = saved && typeof saved === 'object' ? saved as Partial<PlayableCharacter> & { health?: unknown } : {}
+  const condition = typeof candidate.condition === 'string' && candidate.condition.trim()
+    ? candidate.condition.trim()
+    : candidate.health
+      ? 'Marked by the road so far, but still able to continue.'
+      : storySchema.player.condition
+
+  return {
+    ...storySchema.player,
+    id: typeof candidate.id === 'string' ? candidate.id : storySchema.player.id,
+    name: typeof candidate.name === 'string' ? candidate.name : storySchema.player.name,
+    role: typeof candidate.role === 'string' ? candidate.role : storySchema.player.role,
+    portraitAsset: typeof candidate.portraitAsset === 'string' ? candidate.portraitAsset : storySchema.player.portraitAsset,
+    color: typeof candidate.color === 'string' ? candidate.color : storySchema.player.color,
+    condition,
+    inventory: Array.isArray(candidate.inventory) ? candidate.inventory : storySchema.player.inventory,
+    skillTags: Array.isArray(candidate.skillTags) ? candidate.skillTags : storySchema.player.skillTags,
+    voice: candidate.voice ?? storySchema.player.voice,
+    backstory: candidate.backstory ?? storySchema.player.backstory,
+    memory: Array.isArray(candidate.memory) ? candidate.memory : storySchema.player.memory,
+  }
+}
+
+function normalizeFeedEntry(saved: unknown): FeedEntry | undefined {
+  if (!saved || typeof saved !== 'object') {
+    return undefined
+  }
+
+  const entry = saved as Partial<FeedEntry> & { id?: string; turn?: number; content?: Partial<NonNullable<FeedEntry['content']>> & { turn?: number } }
+  if (!entry.kind || !entry.text) {
+    return undefined
+  }
+
+  return {
+    id: entry.id ?? createId(entry.kind),
+    kind: entry.kind,
+    speaker: entry.speaker,
+    text: entry.text,
+    content: entry.content?.name && entry.content.nodeType ? { name: entry.content.name, nodeType: entry.content.nodeType } : undefined,
+    generatedText: entry.generatedText,
+    nodeId: entry.nodeId,
+    eventId: entry.eventId,
+    streaming: false,
+    consequenceBadges: entry.consequenceBadges,
+    retryAction: entry.retryAction,
+  }
+}
+
+function normalizeDebugEntry(saved: unknown): DebugEntry | undefined {
+  if (!saved || typeof saved !== 'object') {
+    return undefined
+  }
+
+  const entry = saved as Partial<DebugEntry> & { id?: string; turn?: number }
+  if (!entry.text) {
+    return undefined
+  }
+
+  return {
+    id: entry.id ?? createId('debug'),
+    label: entry.label,
+    text: entry.text,
+    streaming: false,
+  }
+}
+
+function normalizeCampaignState(saved: unknown): CampaignState {
+  if (!saved || typeof saved !== 'object') {
+    return initialState
+  }
+
+  const candidate = saved as Partial<CampaignState> & { turn?: number }
+  return {
+    ...initialState,
+    player: normalizePlayableCharacter(candidate.player),
+    storyNpcs: Array.isArray(candidate.storyNpcs) ? candidate.storyNpcs : initialState.storyNpcs,
+    currentNodeId: typeof candidate.currentNodeId === 'string' ? candidate.currentNodeId : initialState.currentNodeId,
+    currentEvent: candidate.currentEvent,
+    sceneOpened: typeof candidate.sceneOpened === 'boolean' ? candidate.sceneOpened : initialState.sceneOpened,
+    exploredNodeIds: Array.isArray(candidate.exploredNodeIds) ? candidate.exploredNodeIds : initialState.exploredNodeIds,
+    eventHistory: Array.isArray(candidate.eventHistory) ? candidate.eventHistory : initialState.eventHistory,
+    feed: Array.isArray(candidate.feed) ? candidate.feed.map(normalizeFeedEntry).filter((entry): entry is FeedEntry => Boolean(entry)) : initialState.feed,
+    debugFeed: Array.isArray(candidate.debugFeed) ? candidate.debugFeed.map(normalizeDebugEntry).filter((entry): entry is DebugEntry => Boolean(entry)) : initialState.debugFeed,
+    flags: candidate.flags && typeof candidate.flags === 'object' ? candidate.flags : initialState.flags,
+    canonicalFacts: candidate.canonicalFacts && typeof candidate.canonicalFacts === 'object' ? candidate.canonicalFacts : initialState.canonicalFacts,
+    outcome: candidate.outcome === 'won' || candidate.outcome === 'lost' || candidate.outcome === 'running' ? candidate.outcome : initialState.outcome,
   }
 }
 
@@ -1453,10 +1526,6 @@ function removeInventoryItem(player: PlayableCharacter, itemId: string) {
   return { ...player, inventory: player.inventory.filter((item) => item.id !== itemId) }
 }
 
-function clampHealth(health: Health) {
-  return { ...health, current: Math.min(health.max, Math.max(0, health.current)) }
-}
-
 function getTravelBlockerReason(state: CampaignState, exit: StoryExit) {
   const blocker = exit.blocker
 
@@ -1574,10 +1643,6 @@ function getTravelDisabledReason(state: CampaignState, nodeId: string) {
     return 'Tamsin is already here.'
   }
 
-  if (state.player.health.current <= 0) {
-    return 'Tamsin cannot travel while her health is gone.'
-  }
-
   const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
 
   if (unfinishedBusinessReason) {
@@ -1610,10 +1675,6 @@ function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
     return `Requires: ${knownItem?.name ?? 'a missing item'}`
   }
 
-  if (state.player.health.current <= 0) {
-    return 'Tamsin cannot act while her health is gone.'
-  }
-
   return undefined
 }
 
@@ -1642,10 +1703,6 @@ function describeEffect(effect: StoryEffect) {
       return `Gain item: ${effect.item.name}`
     case 'loseItem':
       return `Lose item: ${effect.itemId}`
-    case 'damage':
-      return `Lose ${effect.amount} health: ${effect.reason}`
-    case 'heal':
-      return `Recover ${effect.amount} health: ${effect.reason}`
     case 'remember':
       return `Remember: ${effect.text}`
     case 'revealNode':
@@ -1698,10 +1755,6 @@ function getEffectBadge(effect: StoryEffect, movedNodeIds = new Set<string>()): 
       const item = allKnownItems.find((candidate) => candidate.id === effect.itemId)
       return `Lost ${item?.name ?? effect.itemId}`
     }
-    case 'damage':
-      return `Lost ${effect.amount} health`
-    case 'heal':
-      return `Recovered ${effect.amount} health`
     case 'remember':
       return `Learned: ${formatBadgeText(effect.text)}`
     case 'revealNode':
@@ -1757,12 +1810,8 @@ function StoryChoiceModeIcon({ mode }: { mode: StoryChoiceMode }) {
   return <Icon className="size-3" aria-hidden="true" />
 }
 
-function choiceNeedsConfirmation(choice: StoryChoice, player: PlayableCharacter) {
+function choiceNeedsConfirmation(choice: StoryChoice) {
   return (choice.effects ?? []).some((effect) => {
-    if (effect.type === 'damage') {
-      return effect.amount > player.health.max * 0.2
-    }
-
     if (effect.type === 'loseItem') {
       const item = allKnownItems.find((candidate) => candidate.id === effect.itemId)
       return Boolean(item && !item.consumable)
@@ -1787,14 +1836,6 @@ function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
       player = removeInventoryItem(player, effect.itemId)
     }
 
-    if (effect.type === 'damage') {
-      player = { ...player, health: clampHealth({ ...player.health, current: player.health.current - effect.amount }), memory: [...player.memory, effect.reason].slice(-8) }
-    }
-
-    if (effect.type === 'heal') {
-      player = { ...player, health: clampHealth({ ...player.health, current: player.health.current + effect.amount }), memory: [...player.memory, effect.reason].slice(-8) }
-    }
-
     if (effect.type === 'remember') {
       player = { ...player, memory: [...player.memory, effect.text].slice(-8) }
     }
@@ -1813,7 +1854,7 @@ function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
     }
   }
 
-  const outcome: CampaignState['outcome'] = player.health.current <= 0 ? 'lost' : currentNodeId === storySchema.goalNodeId && flags['proof-delivered'] ? 'won' : 'running'
+  const outcome: CampaignState['outcome'] = currentNodeId === storySchema.goalNodeId && flags['proof-delivered'] ? 'won' : 'running'
 
   return { ...state, player, currentNodeId, exploredNodeIds, flags, outcome }
 }
@@ -1927,7 +1968,7 @@ function getCodexReferences(state: CampaignState) {
 function formatPlayerSheet(player: PlayableCharacter) {
   return `Name: ${player.name}
 Role: ${player.role}
-Health: ${player.health.current}/${player.health.max}
+Current condition: ${player.condition}
 Visible inventory: ${player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
 Internal skill tags: ${player.skillTags.join(', ')}
 Public presentation: ${player.voice.publicStyle}
@@ -1937,6 +1978,16 @@ Wound: ${player.backstory.wound}
 Known goal: ${player.backstory.want}
 Private knowledge available to the player: ${player.backstory.privateKnowledge}
 Recent known story facts: ${player.memory.slice(-5).join(' / ')}`
+}
+
+function sanitizePlayerCondition(text: string, fallback: string) {
+  const firstLine = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/)[0]?.trim()
+
+  if (!firstLine || /\b(hp|health points?|hit points?|bar|bars?|percent|percentage|level)\b/i.test(firstLine)) {
+    return fallback
+  }
+
+  return firstLine.slice(0, 180)
 }
 
 function formatCodexContext(state: CampaignState) {
@@ -2166,7 +2217,8 @@ Rules:
 - Do not write dialogue for the player character.
 - Do not decide the player's action.
 - ${playerAgencyRule}
-- Do not invent health, inventory, victory, loss, map movement, or hidden discoveries.
+- Do not invent inventory, victory, loss, map movement, or hidden discoveries.
+- You may describe visible strain, wounds, fatigue, relief, composure, or other condition changes naturally, but never as HP, health points, bars, levels, numbers, or percentages.
 - If an NPC speaks, write the NPC's actual name followed by a colon. Never write the literal label "Name:".
 - For fragile or quiet delivery, prefix that line with "[weak]", "[small]", or "[whisper]".
 - Do not reveal hidden routes, future places, or event tables.
@@ -2217,7 +2269,8 @@ Rules:
 - Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
 - If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
 - ${playerAgencyRule}
-- Do not invent additional health, inventory, map, victory, or loss changes beyond the hard effects listed above.
+- Do not invent additional inventory, map, victory, or loss changes beyond the hard effects listed above.
+- You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
 - If someone speaks, use their actual name followed by a colon. Never write the literal label "Name:".
 - ${groundedMedievalRule}
 - ${originalStoryRule}`
@@ -2262,9 +2315,33 @@ Rules:
 - Do not invent exact dialogue, private thoughts, motives, or additional actions for the player character.
 - If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
 - ${playerAgencyRule}
-- Do not invent health, inventory, map, victory, or loss changes.
+- Do not invent inventory, map, victory, or loss changes.
+- You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
 - ${groundedMedievalRule}
 - ${originalStoryRule}`
+}
+
+function buildPlayerConditionUpdatePrompt(state: CampaignState, choice: StoryChoice, resolutionText: string, npcText?: string) {
+  return `You maintain the player character's visible condition as prose, not numbers.
+
+Player: ${state.player.name}
+Previous condition: ${state.player.condition}
+
+Selected choice:
+${choice.neutralSummary}
+
+Visible result:
+${resolutionText}
+
+NPC response:
+${npcText || 'None.'}
+
+Write one concise player-facing condition sentence for ${state.player.name}.
+Rules:
+- Output only the condition sentence.
+- No HP, health points, hit points, bars, levels, percentages, or numeric status.
+- Describe only visible physical, social, or emotional condition.
+- Do not declare death or defeat unless the visible story clearly establishes it.`
 }
 
 function StoryIcon({ id, label, className = '' }: { id: StoryIconId; label: string; className?: string }) {
@@ -2350,23 +2427,12 @@ function StoryTranscript({
   return (
     <div className="iff-transcript border-0 p-0 shadow-none">
       <div className="font-serif text-base leading-8 tracking-normal text-foreground">
-        {state.feed.map((entry, index) => (
+        {state.feed.map((entry) => (
           <div key={entry.id}>
-            {index > 0 && index % 10 === 0 ? <StoryTurnDivider turn={entry.turn} /> : null}
             <FeedBlock entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-function StoryTurnDivider({ turn }: { turn: number }) {
-  return (
-    <div className="mb-4 mt-6 flex items-center gap-3">
-      <span className="h-px flex-1 bg-[var(--color-border)]" />
-      <span className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-dim)]">Turn {turn}</span>
-      <span className="h-px flex-1 bg-[var(--color-border)]" />
     </div>
   )
 }
@@ -2387,7 +2453,7 @@ function FeedBlock({
       <section className="mb-5 mt-6 border-t border-[var(--color-border)] pt-3 last:mb-0">
         <div className="flex flex-wrap items-baseline justify-between gap-2 text-[var(--color-text-muted)]">
           <p className="font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em]">{entry.content?.name ?? entry.text}</p>
-          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ?? 'place'} · turn {entry.content?.turn ?? entry.turn}</p>
+          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ?? 'place'}</p>
         </div>
       </section>
     )
@@ -2929,62 +2995,6 @@ function MapLocationDetails({
   )
 }
 
-function StatusStrip({
-  state,
-  expanded,
-  healthPulse,
-  toast,
-  savedFlash,
-  onToggleInventory,
-}: {
-  state: CampaignState
-  expanded: boolean
-  healthPulse?: 'damage' | 'heal'
-  toast?: string
-  savedFlash: boolean
-  onToggleInventory: () => void
-}) {
-  const player = state.player
-  const visibleInventory = player.inventory.filter((item) => item.visible)
-  const lowHealth = player.health.current / player.health.max < 0.25
-
-  return (
-    <section className={`relative border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3 ${lowHealth ? 'iff-low-health' : ''}`} aria-live="polite">
-      <div className="flex flex-col gap-2">
-        <span className="ui-label">{player.name}</span>
-        <span className={`min-w-24 ${healthPulse ? `iff-health-${healthPulse}` : ''}`}>
-          <span className="text-xs text-[var(--color-text-muted)]">HP {player.health.current}/{player.health.max}</span>
-          <Progress value={(player.health.current / player.health.max) * 100} className="mt-1" />
-        </span>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" className="border border-[var(--color-border)] px-2 py-1 text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text)]" onClick={onToggleInventory}>
-          Inventory {visibleInventory.length}
-        </Button>
-        {savedFlash ? <span className="font-sans text-xs text-muted-foreground">Saved</span> : null}
-      </div>
-      <Dialog open={expanded} onOpenChange={onToggleInventory}>
-        <DialogContent>
-          <DialogTitle>Inventory</DialogTitle>
-          <div className="flex flex-wrap gap-2">
-          {visibleInventory.map((item) => (
-            <span key={item.id} className="group relative inline-flex">
-              <Badge variant="secondary">{item.name}</Badge>
-              <span className="pointer-events-none absolute left-0 top-full mt-2 hidden w-72 border border-[var(--color-border)] bg-popover p-3 text-popover-foreground group-hover:block group-focus-within:block">
-                <span className="block font-sans text-xs font-semibold uppercase tracking-[0.14em]">{item.name}</span>
-                <span className="mt-1 block font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
-                {item.tags?.length ? <span className="mt-2 block font-sans text-xs text-muted-foreground">Tags: {item.tags.join(', ')}</span> : null}
-              </span>
-            </span>
-          ))}
-          </div>
-        </DialogContent>
-      </Dialog>
-      {toast ? <div className="absolute right-3 top-full mt-2 border border-[var(--color-border)] bg-background px-3 py-2 font-sans text-xs shadow-none">{toast}</div> : null}
-    </section>
-  )
-}
-
 function ObjectiveStrip({ hint }: { hint?: string }) {
   const trimmedHint = hint?.trim()
   const shouldShowHint = Boolean(trimmedHint && trimmedHint !== storySchema.objective.summary)
@@ -3038,6 +3048,16 @@ function ChoicePanel({
     )
   }
 
+  if (isAdvancing) {
+    return (
+      <Card className="iff-chrome-panel">
+        <CardContent>
+          <p className="font-serif text-sm text-muted-foreground">Waiting for narrator…</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const choices = getAvailableChoices(state)
   const currentEvent = state.currentEvent
 
@@ -3053,7 +3073,7 @@ function ChoicePanel({
         {choices.map((choice) => {
           const disabledReason = getChoiceDisabledReason(state, choice)
           const disabled = Boolean(disabledReason) || isAdvancing
-          const needsConfirm = choiceNeedsConfirmation(choice, state.player)
+          const needsConfirm = choiceNeedsConfirmation(choice)
           const confirming = confirmingChoiceId === choice.id
           const disabledId = `${choice.id}-disabled-reason`
           const describedBy = disabledReason ? disabledId : undefined
@@ -3168,9 +3188,10 @@ function CharacterPanel({
             <div className="min-w-0">
               <h4 className="text-xl font-semibold">{state.player.name}</h4>
               <p className="text-sm text-muted-foreground">{state.player.role}</p>
-              <Badge className="mt-2" variant="secondary">
-                Health {state.player.health.current}/{state.player.health.max}
-              </Badge>
+              <div className="mt-3 border-l border-[var(--color-border)] pl-3">
+                <p className="ui-label">Condition</p>
+                <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{state.player.condition}</p>
+              </div>
             </div>
           </div>
 
@@ -3236,7 +3257,6 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
               <article key={entry.id} className="border border-[var(--color-border)] bg-muted p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <Badge variant="outline">{entry.label ?? 'Trace'}</Badge>
-                  <span className="text-xs text-muted-foreground">Turn {entry.turn}</span>
                 </div>
                 <p className="whitespace-pre-wrap font-serif text-sm leading-6 text-muted-foreground">
                   {entry.text}
@@ -3290,12 +3310,7 @@ function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
           <div className="flex flex-col gap-4">
             <p className="font-serif text-base leading-relaxed text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">HP {player.health.current}/{player.health.max}</Badge>
               {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
-            </div>
-            <div className="border-l border-[var(--color-border)] pl-3">
-              <p className="ui-label">Opening memory</p>
-              <p className="mt-1 font-serif text-sm leading-6">{player.memory[0]}</p>
             </div>
             <Button type="button" size="lg" onClick={onBegin}>Begin</Button>
           </div>
@@ -3319,12 +3334,11 @@ function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: 
           <CardDescription className="font-serif text-base leading-7">{won ? storySchema.victoryResolution : storySchema.defeatResolution}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Badge variant="secondary">Total turns: {state.turn}</Badge>
           <details className="border border-[var(--color-border)] bg-background p-4">
             <summary className="cursor-pointer font-sans text-sm font-semibold uppercase tracking-[0.14em]">Review your journey</summary>
             <div className="mt-3 flex flex-col gap-2">
               {choices.map((entry) => (
-                <p key={entry.id} className="font-serif text-sm leading-6 text-muted-foreground"><span className="font-sans text-xs uppercase tracking-[0.14em]">Turn {entry.turn}</span> — {entry.text}</p>
+                <p key={entry.id} className="font-serif text-sm leading-6 text-muted-foreground">{entry.text}</p>
               ))}
               {choices.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No choices recorded yet.</p> : null}
             </div>
@@ -3337,7 +3351,14 @@ function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: 
 }
 
 function App() {
-  const [campaign, setCampaign] = useState(initialState)
+  const [campaign, setCampaign] = useState<CampaignState>(() => {
+    try {
+      const saved = window.localStorage.getItem(campaignStorageKey)
+      return saved ? normalizeCampaignState(JSON.parse(saved)) : initialState
+    } catch {
+      return initialState
+    }
+  })
   const [llmSettings, setLlmSettings] = useState<LlmSettings>(() => {
     try {
       const saved = window.localStorage.getItem(llmSettingsStorageKey)
@@ -3362,7 +3383,6 @@ function App() {
   const [debugMode, setDebugMode] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [inventoryExpanded, setInventoryExpanded] = useState(false)
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('story')
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>()
   const [travelAnimation, setTravelAnimation] = useState<MapTravelAnimation>()
@@ -3376,14 +3396,9 @@ function App() {
   const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
   const [newContentWaiting, setNewContentWaiting] = useState(false)
   const [isScrollLocked, setIsScrollLocked] = useState(false)
-  const [statusToast, setStatusToast] = useState<string>()
-  const [healthPulse, setHealthPulse] = useState<'damage' | 'heal'>()
-  const [savedFlash, setSavedFlash] = useState(false)
   const [confirmingChoiceId, setConfirmingChoiceId] = useState<string>()
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
   const storyScrollRef = useRef<HTMLDivElement | null>(null)
-  const previousHealthRef = useRef(initialState.player.health.current)
-  const previousInventoryIdsRef = useRef(initialState.player.inventory.map((item) => item.id).join('|'))
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
   const currentLlmPreset = useMemo(() => getLlmPreset(llmSettings.presetId), [llmSettings.presetId])
@@ -3459,39 +3474,10 @@ function App() {
   }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId])
 
   useEffect(() => {
-    const previousHealth = previousHealthRef.current
-    if (campaign.player.health.current !== previousHealth) {
-      const pulse = campaign.player.health.current < previousHealth ? 'damage' : 'heal'
-      setHealthPulse(pulse)
-      window.setTimeout(() => setHealthPulse(undefined), 390)
-      previousHealthRef.current = campaign.player.health.current
+    if (campaign.feed.length > 1 && !isAdvancing) {
+      window.localStorage.setItem(campaignStorageKey, JSON.stringify(campaign))
     }
-
-    const previousIds = previousInventoryIdsRef.current.split('|').filter(Boolean)
-    const currentVisibleInventory = campaign.player.inventory.filter((item) => item.visible)
-    const currentIds = currentVisibleInventory.map((item) => item.id)
-    const gained = currentVisibleInventory.find((item) => !previousIds.includes(item.id))
-    const lostId = previousIds.find((id) => !currentIds.includes(id))
-    if (gained || lostId) {
-      const lostItem = allKnownItems.find((item) => item.id === lostId)
-      setStatusToast(gained ? `+ ${gained.name} added` : `− ${lostItem?.name ?? lostId} used`)
-      window.setTimeout(() => setStatusToast(undefined), 2000)
-      previousInventoryIdsRef.current = currentIds.join('|')
-    }
-  }, [campaign.player.health, campaign.player.inventory])
-
-  useEffect(() => {
-    if (campaign.turn > 1 && !isAdvancing) {
-      window.localStorage.setItem(`iff:${storySchema.id}:run-1`, JSON.stringify(campaign))
-      const showFlashTimer = window.setTimeout(() => setSavedFlash(true), 0)
-      const hideFlashTimer = window.setTimeout(() => setSavedFlash(false), 900)
-
-      return () => {
-        window.clearTimeout(showFlashTimer)
-        window.clearTimeout(hideFlashTimer)
-      }
-    }
-  }, [campaign.turn, isAdvancing, campaign])
+  }, [isAdvancing, campaign])
 
   const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
     if (isScrollLocked) {
@@ -3554,7 +3540,7 @@ function App() {
     return id
   }
 
-  const appendDirectionLintWarning = (stateAtGeneration: CampaignState, text: string, turn: number, label: string) => {
+  const appendDirectionLintWarning = (stateAtGeneration: CampaignState, text: string, label: string) => {
     const invalidDirections = getInvalidGeneratedDirections(stateAtGeneration, text)
 
     if (invalidDirections.length === 0) {
@@ -3564,7 +3550,6 @@ function App() {
     const currentNode = getNode(stateAtGeneration.currentNodeId)
     const validExitDirections = Array.from(getValidExitDirectionWords(stateAtGeneration))
     appendDebugEntry({
-      turn,
       label: 'World topology warning',
       text: `${label} mentioned direction word(s) not present in exits from ${currentNode.publicName}: ${invalidDirections.join(', ')}. Valid direction words here: ${validExitDirections.join(', ') || 'none'}.`,
     })
@@ -3596,7 +3581,6 @@ function App() {
     try {
       await assertLocalModelAvailable(llmSettings)
 
-      const turn = stateAtStart.turn
       const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
       const node = getNode(stateAtStart.currentNodeId)
       const nodeCanonicalFacts = setCanonicalFact(stateAtStart.canonicalFacts, node.publicName, node.canonicalDescription)
@@ -3618,23 +3602,23 @@ function App() {
         feed: [
           ...state.feed,
           ...feedEntries,
-          { id: createId('scene'), turn, kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
-          { id: createId('location'), ...createLocationFeedEntry(node, turn), eventId: event.id },
-          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true },
+          { id: createId('scene'), kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
+          { id: createId('location'), ...createLocationFeedEntry(node), eventId: event.id },
+          { id: currentNarratorEntryId, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true },
         ],
         debugFeed: state.debugFeed,
       }))
       scrollStoryToEnd('smooth')
 
       const prompt = buildSceneOpeningPrompt(sceneState, event)
-      appendDebugEntry({ turn, label: 'Scene opening prompt', text: prompt })
+      appendDebugEntry({ label: 'Scene opening prompt', text: prompt })
       const varietyWarnings = getChoiceVarietyWarnings(event)
       if (varietyWarnings.length > 0) {
-        appendDebugEntry({ turn, label: 'Choice variety warnings', text: varietyWarnings.join('\n') })
+        appendDebugEntry({ label: 'Choice variety warnings', text: varietyWarnings.join('\n') })
       }
 
       const openingText = await streamFeedEntry(currentNarratorEntryId, prompt)
-      appendDirectionLintWarning(sceneState, openingText, turn, 'Scene opening')
+      appendDirectionLintWarning(sceneState, openingText, 'Scene opening')
       rememberLocationCanonicalFact(node, openingText)
       updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
     } catch (error) {
@@ -3642,7 +3626,7 @@ function App() {
       if (narratorEntryId) {
         updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, kind: entry.text ? entry.kind : 'error', text: entry.text || `Narrator unavailable — ${message}`, streaming: false, retryAction: 'begin-scene' }))
       } else {
-        appendFeedEntry({ turn: stateAtStart.turn, kind: 'error', speaker: 'System', nodeId: stateAtStart.currentNodeId, text: `Narrator unavailable — ${message}`, retryAction: 'begin-scene' })
+        appendFeedEntry({ kind: 'error', speaker: 'System', nodeId: stateAtStart.currentNodeId, text: `Narrator unavailable — ${message}`, retryAction: 'begin-scene' })
       }
       setPendingRetry(() => () => void openSceneFromState(stateAtStart, leadingFeedEntries))
       setLlmError(message)
@@ -3661,7 +3645,7 @@ function App() {
 
     if (disabledReason) {
       if (campaign.sceneOpened && campaign.currentEvent) {
-        appendFeedEntry({ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId: campaign.currentNodeId, text: disabledReason })
+        appendFeedEntry({ kind: 'system', speaker: 'Map', nodeId: campaign.currentNodeId, text: disabledReason })
       }
       return
     }
@@ -3693,7 +3677,7 @@ function App() {
     setSelectedNodeId(nodeId)
     setTravelAnimation(undefined)
     setIsTravelAnimating(false)
-    await openSceneFromState(travelledState, [{ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId, text: wasExplored ? `Travelled to ${destination.publicName}.` : `Discovered ${destination.publicName}.` }])
+    await openSceneFromState(travelledState, [{ kind: 'system', speaker: 'Map', nodeId, text: wasExplored ? `Travelled to ${destination.publicName}.` : `Discovered ${destination.publicName}.` }])
   }
 
   const beginScene = async () => {
@@ -3709,7 +3693,7 @@ function App() {
       return
     }
 
-    if (choiceNeedsConfirmation(choice, campaign.player) && confirmingChoiceId !== choice.id) {
+    if (choiceNeedsConfirmation(choice) && confirmingChoiceId !== choice.id) {
       setConfirmingChoiceId(choice.id)
       return
     }
@@ -3722,7 +3706,6 @@ function App() {
       await assertLocalModelAvailable(llmSettings)
 
       const stateAtStart = campaign
-      const turn = stateAtStart.turn
       const event = stateAtStart.currentEvent
       if (!event) {
         return
@@ -3732,7 +3715,6 @@ function App() {
       const effects = choice.effects ?? []
 
       appendFeedEntry({
-        turn,
         kind: 'selected',
         speaker: 'Your choice',
         nodeId: node.id,
@@ -3740,34 +3722,42 @@ function App() {
         text: choice.neutralSummary,
       })
       appendDebugEntry({
-        turn,
         label: 'Selected choice',
         text: `${choice.label}\nMode: ${choice.mode}\nSkill tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
       })
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
-      appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
-      appendFeedEntry({ ...createLocationFeedEntry(node, turn), eventId: event.id })
-      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
+      appendDebugEntry({ label: 'Resolution prompt', text: resolutionPrompt })
+      appendFeedEntry({ ...createLocationFeedEntry(node), eventId: event.id })
+      const resolutionEntryId = appendFeedEntry({ kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
-      appendDirectionLintWarning(stateAtStart, resolutionText, turn, 'Choice resolution')
+      appendDirectionLintWarning(stateAtStart, resolutionText, 'Choice resolution')
       updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: getEffectBadges(effects), streaming: false }))
 
       let updatedStoryNpcs = stateAtStart.storyNpcs
+      let npcText = ''
       if (sceneNpc) {
         const npcPrompt = buildNpcResponsePrompt(stateAtStart, event, sceneNpc, choice, resolutionText)
-        appendDebugEntry({ turn, label: 'NPC prompt', text: npcPrompt })
-        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
-        const npcTurn = await streamFeedEntry(npcEntryId, npcPrompt)
-        appendDirectionLintWarning(stateAtStart, npcTurn, turn, 'NPC response')
+        appendDebugEntry({ label: 'NPC prompt', text: npcPrompt })
+        const npcEntryId = appendFeedEntry({ kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
+        npcText = await streamFeedEntry(npcEntryId, npcPrompt)
+        appendDirectionLintWarning(stateAtStart, npcText, 'NPC response')
         updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
-        updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcTurn].slice(-8) } : npc))
+        updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcText].slice(-8) } : npc))
       }
 
-      const appliedState = applyStoryEffects({ ...stateAtStart, storyNpcs: updatedStoryNpcs }, effects)
-      const nextTurn = turn + 1
-      const outOfTime = nextTurn > storySchema.maxTurns && appliedState.outcome === 'running'
-      const outcome: CampaignState['outcome'] = outOfTime ? 'lost' : appliedState.outcome
+      let updatedCondition = stateAtStart.player.condition
+      try {
+        const conditionPrompt = buildPlayerConditionUpdatePrompt(stateAtStart, choice, resolutionText, npcText)
+        appendDebugEntry({ label: 'Condition prompt', text: conditionPrompt })
+        const conditionText = await streamLocalText(llmSettings, conditionPrompt, () => {})
+        updatedCondition = sanitizePlayerCondition(conditionText, stateAtStart.player.condition)
+      } catch {
+        updatedCondition = stateAtStart.player.condition
+      }
+
+      const appliedState = applyStoryEffects({ ...stateAtStart, player: { ...stateAtStart.player, condition: updatedCondition }, storyNpcs: updatedStoryNpcs }, effects)
+      const outcome: CampaignState['outcome'] = appliedState.outcome
 
       setSelectedNodeId(appliedState.currentNodeId)
       if (!appliedState.player.inventory.some((item) => item.id === selectedItemId)) {
@@ -3779,19 +3769,17 @@ function App() {
         feed: state.feed,
         debugFeed: state.debugFeed,
         storyNpcs: appliedState.storyNpcs.map((npc) => ({ ...npc, currentNodeId: appliedState.currentNodeId })),
-        turn: nextTurn,
         currentEvent: undefined,
         sceneOpened: false,
         outcome,
       }))
 
-      appendDebugEntry({ turn, label: 'Applied effects', text: effects.map(describeEffect).join('\n') || 'No mechanical effects.' })
+      appendDebugEntry({ label: 'Applied effects', text: effects.map(describeEffect).join('\n') || 'No mechanical effects.' })
 
       if (outcome !== 'running') {
         const outcomeText = outcome === 'won' ? 'The proof has been delivered. The dead have names again, and the hall has to hear them.' : 'Tamsin can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.'
-        appendFeedEntry({ ...createLocationFeedEntry(getNode(appliedState.currentNodeId), nextTurn) })
+        appendFeedEntry({ ...createLocationFeedEntry(getNode(appliedState.currentNodeId)) })
         appendFeedEntry({
-          turn: nextTurn,
           kind: 'narration',
           speaker: 'Narrator',
           nodeId: appliedState.currentNodeId,
@@ -3801,7 +3789,7 @@ function App() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
-      appendFeedEntry({ turn: campaign.turn, kind: 'error', speaker: 'System', nodeId: campaign.currentNodeId, eventId: campaign.currentEvent?.id, text: `Narrator unavailable — ${message}`, retryAction: 'choose-action' })
+      appendFeedEntry({ kind: 'error', speaker: 'System', nodeId: campaign.currentNodeId, eventId: campaign.currentEvent?.id, text: `Narrator unavailable — ${message}`, retryAction: 'choose-action' })
       setPendingRetry(() => () => void chooseAction(choice))
       setLlmError(message)
     } finally {
@@ -3897,8 +3885,6 @@ function App() {
           </Card>
 
           <ObjectiveStrip hint={currentObjective} />
-
-          <StatusStrip state={campaign} expanded={inventoryExpanded} healthPulse={healthPulse} toast={statusToast} savedFlash={savedFlash} onToggleInventory={() => setInventoryExpanded((value) => !value)} />
         </aside>
 
         <section className="flex min-h-0 flex-col gap-4 lg:h-full lg:overflow-hidden">

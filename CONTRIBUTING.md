@@ -28,7 +28,7 @@ good answers:
 - "They should feel like a lone investigator trying to hold onto their job while something 
   impossible happens around them."
 - "They should feel the weight of a bad decision they made before the story started."
-- "They should feel like they have maybe four moves before everything goes wrong."
+- "They should feel like delay makes the world steadily more dangerous."
 
 Write that sentence down. It becomes your `objective.summary`.
 
@@ -71,7 +71,7 @@ Not their backstory — their present:
 - What would they rather not do, but have to? (voice + backstory together)
 
 ### 5. THE PRESSURE
-What gets worse if the player waits? What is the deadline?
+What gets worse if the player waits? What pressure keeps the story moving?
 This becomes `objective.failureCondition` and the weight of your event table.
 Without pressure, the player is a tourist, not an agent.
 
@@ -89,8 +89,9 @@ unless you are intentionally giving the player a scripted line.
 ## What the model can and cannot do
 
 The model enriches prose, NPC reactions, and sensory detail.
-It cannot change health, inventory, map position, flags, or story outcomes.
-All state changes come from authored `StoryEffect` entries on choices.
+It cannot change inventory, map position, flags, or story outcomes.
+The player character’s visible condition is prose, not HP; generated narration may reflect strain, wounds, relief, or composure without numbers.
+Deterministic state changes come from authored `StoryEffect` entries on choices.
 
 Do not write `writerIntent`, `actionPrompt`, or `neutralSummary` as if the model is a 
 co-author making decisions. Write them as stage directions for a narrator who executes 

@@ -17,9 +17,7 @@
   --color-text-dim: #4A4A42;
   --color-accent: #9E8B6B;
   --color-accent-dim: #5A4F3A;
-  --color-health-high: #B8B8A8;
-  --color-health-mid: #C4933F;
-  --color-health-low: #B84242;
+  --color-danger: #B84242;
   --color-say: #6B8FA3;
   --color-ask: #7A9E8A;
   --color-act: #B87A4A;
@@ -45,7 +43,7 @@
   --muted-foreground: var(--color-text-muted);
   --accent: var(--color-accent-dim);
   --accent-foreground: var(--foreground);
-  --destructive: var(--color-health-low);
+  --destructive: var(--color-danger);
   --input: var(--color-border);
   --ring: var(--color-accent);
   --chart-1: oklch(0.12 0 0);
@@ -82,9 +80,7 @@
   --color-text-dim: #9A8E7A;
   --color-accent: #7A5F37;
   --color-accent-dim: #CDBB9B;
-  --color-health-high: #4F6D4A;
-  --color-health-mid: #9A6B18;
-  --color-health-low: #A33B35;
+  --color-danger: #A33B35;
   --color-say: #3F708A;
   --color-ask: #4F7A5E;
   --color-act: #9A5F31;
@@ -147,18 +143,6 @@ select {
   min-height: 100svh;
 }
 
-@keyframes iff-health-damage {
-  0% { background: transparent; }
-  35% { background: color-mix(in oklch, var(--destructive) 28%, transparent); }
-  100% { background: transparent; }
-}
-
-@keyframes iff-health-heal {
-  0% { background: transparent; }
-  35% { background: color-mix(in oklch, oklch(0.68 0.13 145) 28%, transparent); }
-  100% { background: transparent; }
-}
-
 @keyframes iff-scene-character-enter {
   from {
     opacity: 0;
@@ -179,18 +163,6 @@ select {
   100% {
     outline: 1px solid transparent;
   }
-}
-
-.iff-health-damage {
-  animation: iff-health-damage 380ms ease-out both;
-}
-
-.iff-health-heal {
-  animation: iff-health-heal 380ms ease-out both;
-}
-
-.iff-low-health {
-  background: color-mix(in oklch, var(--destructive) 10%, var(--background));
 }
 
 .iff-scene-character {
