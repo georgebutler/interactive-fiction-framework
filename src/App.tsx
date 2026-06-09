@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber'
+import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, LoaderCircleIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
+import type { Group } from 'three'
+import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -208,8 +209,6 @@ type FeedEntry = {
     turn: number
   }
   generatedText?: string
-  revealMode?: 'immediate' | 'animated'
-  animationSkipped?: boolean
   nodeId?: string
   eventId?: string
   streaming?: boolean
@@ -244,9 +243,30 @@ type CampaignState = {
 type LlmSettings = {
   endpoint: string
   model: string
+  presetId: LlmPresetId
+  options: OllamaGenerationOptions
+}
+
+type LlmPresetId = 'auto' | 'fast' | 'balanced' | 'quality' | 'custom'
+
+type OllamaGenerationOptions = {
+  temperature: number
+  top_p: number
+  repeat_penalty: number
+  num_ctx: number
+  num_predict: number
+}
+
+type LlmModelPreset = {
+  id: LlmPresetId
+  label: string
+  description: string
+  preferredModels: string[]
+  options: OllamaGenerationOptions
 }
 
 type AppPhase = 'story-select' | 'protagonist-intro' | 'playing'
+type MainTab = 'story' | 'map' | 'character'
 type ResolvedThemeMode = 'light' | 'dark'
 type ThemeMode = ResolvedThemeMode | 'system'
 type OllamaStatus = 'checking' | 'connected' | 'unreachable'
@@ -1041,9 +1061,42 @@ const storySchema: StorySchema = {
 const nodeById = new Map(storySchema.nodes.map((node) => [node.id, node]))
 const eventById = new Map(storySchema.events.map((event) => [event.id, event]))
 
+const llmModelPresets: LlmModelPreset[] = [
+  {
+    id: 'auto',
+    label: 'Auto',
+    description: 'Pick the best installed local model for interactive fiction.',
+    preferredModels: ['qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b'],
+    options: { temperature: 0.68, top_p: 0.9, repeat_penalty: 1.08, num_ctx: 4096, num_predict: 320 },
+  },
+  {
+    id: 'fast',
+    label: 'Fast',
+    description: 'Lower latency for laptops and smaller machines.',
+    preferredModels: ['llama3.2:3b', 'qwen2.5:3b', 'phi3:mini'],
+    options: { temperature: 0.64, top_p: 0.88, repeat_penalty: 1.08, num_ctx: 3072, num_predict: 260 },
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Recommended balance of prose quality and speed.',
+    preferredModels: ['qwen2.5:7b', 'llama3.1:8b', 'mistral:7b'],
+    options: { temperature: 0.68, top_p: 0.9, repeat_penalty: 1.08, num_ctx: 4096, num_predict: 320 },
+  },
+  {
+    id: 'quality',
+    label: 'Quality',
+    description: 'Richer prose if your machine can comfortably run larger models.',
+    preferredModels: ['qwen2.5:14b', 'llama3.1:8b', 'gemma2:9b', 'qwen2.5:7b'],
+    options: { temperature: 0.72, top_p: 0.92, repeat_penalty: 1.1, num_ctx: 6144, num_predict: 420 },
+  },
+]
+
 const defaultLlmSettings: LlmSettings = {
   endpoint: 'http://localhost:11434',
   model: 'qwen2.5:7b',
+  presetId: 'auto',
+  options: llmModelPresets[0].options,
 }
 
 const llmSettingsStorageKey = 'iff:llm-settings'
@@ -1143,11 +1196,6 @@ function getNodeCanonicalFact(node: StoryNode) {
   return node.canonicalDescription ?? node.description
 }
 
-function getActiveAnimatedEntry(state: CampaignState) {
-  const animatedEntries = state.feed.filter((entry) => entry.revealMode === 'animated' && !entry.animationSkipped)
-  return animatedEntries.find((entry) => entry.streaming) ?? animatedEntries[0]
-}
-
 function getNode(id: string) {
   return nodeById.get(id) ?? storySchema.nodes[0]
 }
@@ -1186,26 +1234,102 @@ function getNodeTypeLabel(nodeType: StoryNodeType) {
   return labels[nodeType]
 }
 
+function getLlmPreset(id: LlmPresetId) {
+  return llmModelPresets.find((preset) => preset.id === id) ?? llmModelPresets[0]
+}
+
+function isLlmPresetId(value: unknown): value is LlmPresetId {
+  return value === 'auto' || value === 'fast' || value === 'balanced' || value === 'quality' || value === 'custom'
+}
+
+function getNumberOption(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function sanitizeLlmOptions(options: OllamaGenerationOptions): OllamaGenerationOptions {
+  return {
+    temperature: clampNumber(options.temperature, 0, 1.5),
+    top_p: clampNumber(options.top_p, 0.1, 1),
+    repeat_penalty: clampNumber(options.repeat_penalty, 0.8, 1.5),
+    num_ctx: Math.round(clampNumber(options.num_ctx, 2048, 8192)),
+    num_predict: Math.round(clampNumber(options.num_predict, 120, 800)),
+  }
+}
+
+function normalizeLlmOptions(value: unknown, fallback: OllamaGenerationOptions) {
+  const partial = typeof value === 'object' && value !== null ? (value as Partial<OllamaGenerationOptions>) : {}
+
+  return sanitizeLlmOptions({
+    temperature: getNumberOption(partial.temperature, fallback.temperature),
+    top_p: getNumberOption(partial.top_p, fallback.top_p),
+    repeat_penalty: getNumberOption(partial.repeat_penalty, fallback.repeat_penalty),
+    num_ctx: getNumberOption(partial.num_ctx, fallback.num_ctx),
+    num_predict: getNumberOption(partial.num_predict, fallback.num_predict),
+  })
+}
+
+function normalizeLlmSettings(saved: unknown): LlmSettings {
+  const partial = typeof saved === 'object' && saved !== null ? (saved as Partial<LlmSettings>) : {}
+  const presetId = isLlmPresetId(partial.presetId) ? partial.presetId : defaultLlmSettings.presetId
+  const presetOptions = getLlmPreset(presetId).options
+  const endpoint = typeof partial.endpoint === 'string' && partial.endpoint.trim() ? partial.endpoint.trim() : defaultLlmSettings.endpoint
+  const model = typeof partial.model === 'string' && partial.model.trim() ? partial.model.trim() : defaultLlmSettings.model
+
+  return {
+    endpoint,
+    model,
+    presetId,
+    options: normalizeLlmOptions(partial.options, presetOptions),
+  }
+}
+
+function getEffectiveLlmOptions(settings: LlmSettings) {
+  const presetOptions = settings.presetId === 'custom' ? defaultLlmSettings.options : getLlmPreset(settings.presetId).options
+
+  return sanitizeLlmOptions({ ...presetOptions, ...settings.options })
+}
+
+function getBestInstalledModel(modelNames: string[], presetId: LlmPresetId) {
+  const preset = getLlmPreset(presetId)
+  const installedModels = new Set(modelNames)
+  const presetMatch = preset.preferredModels.find((model) => installedModels.has(model))
+
+  if (presetMatch) {
+    return presetMatch
+  }
+
+  const broadlyRecommended = ['qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b', 'qwen2.5:3b', 'phi3:mini']
+  return broadlyRecommended.find((model) => installedModels.has(model)) ?? modelNames[0]
+}
+
 function normalizeOllamaBase(endpoint: string) {
-  return endpoint.replace(/\/$/, '')
+  return endpoint.trim().replace(/\/+$/, '')
 }
 
 function normalizeOllamaGenerateEndpoint(endpoint: string) {
   return `${normalizeOllamaBase(endpoint)}/api/generate`
 }
 
-async function assertLocalModelAvailable(settings: LlmSettings) {
-  const response = await fetch(`${normalizeOllamaBase(settings.endpoint)}/api/tags`)
+async function fetchOllamaModelNames(endpoint: string) {
+  const response = await fetch(`${normalizeOllamaBase(endpoint)}/api/tags`)
 
   if (!response.ok) {
     throw new Error(`Ollama is reachable but returned ${response.status}. Start Ollama and try again.`)
   }
 
   const data = (await response.json()) as { models?: Array<{ name?: string }> }
-  const modelNames = data.models?.map((model) => model.name).filter(Boolean) ?? []
+  return data.models?.map((model) => model.name).filter((name): name is string => Boolean(name)) ?? []
+}
+
+async function assertLocalModelAvailable(settings: LlmSettings) {
+  const modelNames = await fetchOllamaModelNames(settings.endpoint)
 
   if (modelNames.length === 0) {
-    throw new Error('Ollama is running, but no local models were found. Download a model before continuing.')
+    throw new Error('Ollama is running, but no local models were found. Try: ollama pull qwen2.5:7b')
   }
 
   if (!modelNames.includes(settings.model)) {
@@ -1221,7 +1345,7 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
       model: settings.model,
       prompt,
       stream: true,
-      options: { temperature: 0.68 },
+      options: getEffectiveLlmOptions(settings),
     }),
   })
 
@@ -1259,7 +1383,13 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
         continue
       }
 
-      const data = JSON.parse(trimmed) as { response?: string; done?: boolean }
+      let data: { response?: string; done?: boolean }
+
+      try {
+        data = JSON.parse(trimmed) as { response?: string; done?: boolean }
+      } catch {
+        throw new Error('The local model returned a malformed streaming response. Restart Ollama and try again.')
+      }
       const chunk = data.response ?? ''
 
       if (chunk) {
@@ -1527,26 +1657,63 @@ function describeEffect(effect: StoryEffect) {
   }
 }
 
-function getEffectBadge(effect: StoryEffect) {
+function formatBadgeText(text: string, maxLength = 80) {
+  const normalized = text.trim().replace(/\s+/g, ' ').replace(/[.。]$/, '')
+
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trim()}…`
+}
+
+function getEffectBadges(effects: StoryEffect[]) {
+  const movedNodeIds = new Set(
+    effects
+      .filter((effect): effect is Extract<StoryEffect, { type: 'moveToNode' }> => effect.type === 'moveToNode')
+      .map((effect) => effect.nodeId),
+  )
+  const badges: string[] = []
+  const seen = new Set<string>()
+
+  for (const effect of effects) {
+    const badge = getEffectBadge(effect, movedNodeIds)
+
+    if (!badge || seen.has(badge)) {
+      continue
+    }
+
+    seen.add(badge)
+    badges.push(badge)
+  }
+
+  return badges
+}
+
+function getEffectBadge(effect: StoryEffect, movedNodeIds = new Set<string>()): string | null {
   switch (effect.type) {
     case 'gainItem':
-      return `+ ${effect.item.name}`
+      return `Gained ${effect.item.name}`
     case 'loseItem': {
       const item = allKnownItems.find((candidate) => candidate.id === effect.itemId)
-      return `− ${item?.name ?? effect.itemId}`
+      return `Lost ${item?.name ?? effect.itemId}`
     }
     case 'damage':
-      return `−${effect.amount} HP`
+      return `Lost ${effect.amount} health`
     case 'heal':
-      return `+${effect.amount} HP`
+      return `Recovered ${effect.amount} health`
     case 'remember':
-      return 'Memory updated'
+      return `Learned: ${formatBadgeText(effect.text)}`
     case 'revealNode':
-      return `Map: ${getNode(effect.nodeId).publicName}`
+      if (movedNodeIds.has(effect.nodeId)) {
+        return null
+      }
+
+      return `Discovered ${getNode(effect.nodeId).publicName}`
     case 'moveToNode':
-      return `Travel: ${getNode(effect.nodeId).publicName}`
+      return `Traveling to ${getNode(effect.nodeId).publicName}`
     case 'setFlag':
-      return effect.value ? 'Story changed' : 'Story flag cleared'
+      return null
   }
 }
 
@@ -1603,18 +1770,6 @@ function choiceNeedsConfirmation(choice: StoryChoice, player: PlayableCharacter)
 
     return false
   })
-}
-
-function getTypewriterDelay(character: string) {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0
-  if (/[.!?]/.test(character)) return 52
-  if (/[,;:]/.test(character)) return 34
-  if (/\s/.test(character)) return 8
-  return 3
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
@@ -2137,37 +2292,9 @@ function getVisualNovelLineStyle(line: string) {
   return { text, className: '' }
 }
 
-function renderAnimatedCharacters(text: string, keyPrefix: string, stagger = false) {
-  let characterIndex = 0
-
-  return text.split(/(\s+)/).filter(Boolean).map((token, tokenIndex) => {
-    if (/^\s+$/.test(token)) {
-      characterIndex += Array.from(token).length
-      return token
-    }
-
-    return (
-      <span key={`${keyPrefix}-word-${tokenIndex}`} className="inline-block whitespace-nowrap">
-        {Array.from(token).map((character) => {
-          const index = characterIndex
-          characterIndex += 1
-
-          return (
-            <span key={`${keyPrefix}-${index}`} className="iff-character-reveal" style={stagger ? { animationDelay: `${Math.min(index * 8, 600)}ms` } : undefined}>
-              {character}
-            </span>
-          )
-        })}
-      </span>
-    )
-  })
-}
-
-function renderCodexText(text: string, references: CodexReference[], options: { animate?: boolean; stagger?: boolean; canonicalFacts?: CampaignState['canonicalFacts'] } = {}) {
-  const renderPart = (part: string, keyPrefix: string) => options.animate ? renderAnimatedCharacters(part, keyPrefix, options.stagger) : part
-
+function renderCodexText(text: string, references: CodexReference[], options: { canonicalFacts?: CampaignState['canonicalFacts'] } = {}) {
   if (references.length === 0 || text.length === 0) {
-    return renderPart(text, 'text')
+    return text
   }
 
   const matcher = new RegExp(`(${references.map((reference) => escapeRegExp(reference.term)).join('|')})`, 'gi')
@@ -2177,7 +2304,7 @@ function renderCodexText(text: string, references: CodexReference[], options: { 
     const reference = references.find((candidate) => candidate.term.toLowerCase() === part.toLowerCase())
 
     if (!reference) {
-      return renderPart(part, `text-${index}`)
+      return part
     }
 
     const canonicalFact = options.canonicalFacts ? getCanonicalFactForReference(options.canonicalFacts, reference) : undefined
@@ -2186,7 +2313,7 @@ function renderCodexText(text: string, references: CodexReference[], options: { 
       <Tooltip key={`${part}-${index}`}>
         <TooltipTrigger asChild>
           <span tabIndex={0} className="codex-term inline cursor-help align-baseline focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-accent)]" aria-label={`${part}: ${getCodexReferenceSummary(reference, options.canonicalFacts)}`}>
-            {renderPart(part, `codex-${index}`)}
+            {part}
           </span>
         </TooltipTrigger>
         <TooltipContent>
@@ -2267,7 +2394,6 @@ function FeedBlock({
   }
 
   const lines = splitFeedLines(entry.text).filter((line) => line.trim().length > 0)
-  const shouldAnimateText = entry.revealMode === 'animated' && !entry.animationSkipped
 
   if (lines.length === 0 && !entry.streaming) {
     return null
@@ -2283,7 +2409,7 @@ function FeedBlock({
         : ''
 
   return (
-    <section className="iff-log-line mb-7 w-full last:mb-0">
+    <section className="mb-7 w-full last:mb-0">
       {entry.kind === 'system' ? (
         <div className="mb-4 mt-6 flex items-center gap-3">
           <span className="h-px flex-1 bg-[var(--color-border)]" />
@@ -2304,12 +2430,12 @@ function FeedBlock({
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
                   <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
-                    {renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming, canonicalFacts })}
+                    {renderCodexText(displayedText, references, { canonicalFacts })}
                   </span>
                 </p>
               ) : (
                 <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
-                  <span>{renderCodexText(displayedText, references, { animate: shouldAnimateText, stagger: !entry.streaming, canonicalFacts })}</span>
+                  <span>{renderCodexText(displayedText, references, { canonicalFacts })}</span>
                 </p>
               )
             })}
@@ -2345,6 +2471,22 @@ type MapRenderEdge = {
   to: [number, number, number]
   hidden: boolean
   blocked: boolean
+}
+
+type MapTravelAnimation = {
+  id: string
+  fromNodeId: string
+  toNodeId: string
+}
+
+type MapControlsLike = {
+  target: {
+    x: number
+    y: number
+    z: number
+    set: (x: number, y: number, z: number) => void
+  }
+  update: () => void
 }
 
 function normalizeMapPosition(node: StoryNode): [number, number, number] {
@@ -2434,14 +2576,11 @@ function ThreeMapEdge({ edge }: { edge: MapRenderEdge }) {
 function ThreeMapNode({
   node,
   onSelectNode,
-  onTravelNode,
 }: {
   node: MapRenderNode
   onSelectNode: (nodeId: string) => void
-  onTravelNode: (nodeId: string) => void
 }) {
   const color = node.explored || node.current ? '#EDE9E0' : '#5A4F3A'
-  const disabledReasonId = `${node.id}-map-travel-reason`
 
   return (
     <group position={node.position} onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelectNode(node.id) }}>
@@ -2463,39 +2602,6 @@ function ThreeMapNode({
           <span className={`block whitespace-nowrap border bg-background px-2 py-1 font-sans text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${node.explored || node.current ? 'border-[var(--color-border)] text-foreground' : 'border-muted-foreground text-muted-foreground'}`}>
             {node.label}
           </span>
-        </Html>
-      ) : null}
-      {node.selected ? (
-        <Html position={[0, 1.48, 0]} center style={{ pointerEvents: 'auto', width: 'max-content' }}>
-          <div role="dialog" aria-label={`${node.label} details`} className="w-56 max-w-[70vw] border border-[var(--color-border)] bg-background p-2.5 text-foreground shadow-none">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="min-w-0 truncate font-serif text-base leading-tight">{node.label}</h3>
-              {node.explored || node.current ? <MapNodeTypeBadge nodeType={node.nodeType} /> : null}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {node.current ? <Badge variant="secondary">current location</Badge> : null}
-              {!node.explored ? <Badge variant="secondary">unexplored</Badge> : null}
-            </div>
-            <p className="mt-2 font-serif text-xs leading-5 text-muted-foreground">{node.description}</p>
-            <div className="mt-2 flex flex-col gap-2">
-              <span title={node.travelDisabledReason} className="block w-full">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="w-full"
-                  disabled={Boolean(node.travelDisabledReason)}
-                  aria-describedby={node.travelDisabledReason ? disabledReasonId : undefined}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onTravelNode(node.id)
-                  }}
-                >
-                  Travel
-                </Button>
-              </span>
-              {node.travelDisabledReason ? <span id={disabledReasonId} className="sr-only">{node.travelDisabledReason}</span> : null}
-            </div>
-          </div>
         </Html>
       ) : null}
     </group>
@@ -2532,22 +2638,181 @@ function MapPerspectiveCamera() {
   )
 }
 
+function getMapFocusPosition(model: ReturnType<typeof getMapRenderModel>, travelAnimation?: MapTravelAnimation) {
+  const travellingToNode = travelAnimation ? model.nodes.find((node) => node.id === travelAnimation.toNodeId) : undefined
+  const selectedNode = model.nodes.find((node) => node.id === model.selectedVisibleNodeId)
+  const currentNode = model.nodes.find((node) => node.current)
+  const focusNode = travellingToNode ?? selectedNode ?? currentNode ?? model.nodes[0]
+
+  return focusNode?.position ?? ([0, 0, 0] as [number, number, number])
+}
+
+function lerpNumber(from: number, to: number, progress: number) {
+  return from + (to - from) * progress
+}
+
+function getTravelProgress(elapsed: number, duration: number) {
+  const linearProgress = Math.min(Math.max(elapsed / duration, 0), 1)
+
+  return linearProgress < 0.5
+    ? 2 * linearProgress * linearProgress
+    : 1 - Math.pow(-2 * linearProgress + 2, 2) / 2
+}
+
+function MapTravelPawn({
+  model,
+  travelAnimation,
+  onComplete,
+}: {
+  model: ReturnType<typeof getMapRenderModel>
+  travelAnimation?: MapTravelAnimation
+  onComplete: () => void
+}) {
+  const startTimeRef = useRef(0)
+  const animationIdRef = useRef<string | undefined>(undefined)
+  const completedRef = useRef(false)
+  const positionRef = useRef<[number, number, number]>(getMapFocusPosition(model, travelAnimation))
+  const pawnRef = useRef<Group>(null)
+  const duration = 1.9
+
+  const fromNode = travelAnimation ? model.nodes.find((node) => node.id === travelAnimation.fromNodeId) : undefined
+  const toNode = travelAnimation ? model.nodes.find((node) => node.id === travelAnimation.toNodeId) : undefined
+  const currentNode = model.nodes.find((node) => node.current)
+
+  useFrame((state) => {
+    if (!travelAnimation || !fromNode || !toNode) {
+      positionRef.current = currentNode?.position ?? positionRef.current
+      pawnRef.current?.position.set(positionRef.current[0], positionRef.current[1] + 0.34, positionRef.current[2])
+      return
+    }
+
+    if (animationIdRef.current !== travelAnimation.id) {
+      animationIdRef.current = travelAnimation.id
+      startTimeRef.current = state.clock.elapsedTime
+      completedRef.current = false
+    }
+
+    const progress = getTravelProgress(state.clock.elapsedTime - startTimeRef.current, duration)
+    positionRef.current = [
+      lerpNumber(fromNode.position[0], toNode.position[0], progress),
+      0,
+      lerpNumber(fromNode.position[2], toNode.position[2], progress),
+    ]
+    pawnRef.current?.position.set(positionRef.current[0], positionRef.current[1] + 0.34, positionRef.current[2])
+
+    if (progress >= 1 && !completedRef.current) {
+      completedRef.current = true
+      window.setTimeout(onComplete, 0)
+    }
+  })
+
+  const [x, y, z] = travelAnimation && fromNode && toNode ? positionRef.current : currentNode?.position ?? positionRef.current
+
+  return (
+    <group ref={pawnRef} position={[x, y + 0.34, z]}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.28, 0.42, 28]} />
+        <meshBasicMaterial color="#E0B66A" transparent opacity={0.36} />
+      </mesh>
+      <mesh position={[0, 0.16, 0]}>
+        <sphereGeometry args={[0.18, 20, 12]} />
+        <meshBasicMaterial color="#F4D78A" />
+      </mesh>
+    </group>
+  )
+}
+
+function MapCameraRig({
+  model,
+  travelAnimation,
+}: {
+  model: ReturnType<typeof getMapRenderModel>
+  travelAnimation?: MapTravelAnimation
+}) {
+  const camera = useThree((state) => state.camera)
+  const controls = useThree((state) => state.controls) as unknown as MapControlsLike | undefined
+  const startTimeRef = useRef(0)
+  const animationIdRef = useRef<string | undefined>(undefined)
+  const focusKeyRef = useRef<string | undefined>(undefined)
+  const focusUntilRef = useRef(0)
+  const focusRef = useRef<[number, number, number]>(getMapFocusPosition(model, travelAnimation))
+  const duration = 1.9
+
+  useFrame((state, delta) => {
+    const currentNodeId = model.nodes.find((node) => node.current)?.id
+    const focusKey = travelAnimation?.id ?? model.selectedVisibleNodeId ?? currentNodeId ?? 'origin'
+    let focus = getMapFocusPosition(model, travelAnimation)
+    let shouldGuideCamera = Boolean(travelAnimation)
+
+    if (focusKeyRef.current !== focusKey) {
+      focusKeyRef.current = focusKey
+      focusUntilRef.current = state.clock.elapsedTime + 0.9
+    }
+
+    if (travelAnimation) {
+      const fromNode = model.nodes.find((node) => node.id === travelAnimation.fromNodeId)
+      const toNode = model.nodes.find((node) => node.id === travelAnimation.toNodeId)
+
+      if (fromNode && toNode) {
+        if (animationIdRef.current !== travelAnimation.id) {
+          animationIdRef.current = travelAnimation.id
+          startTimeRef.current = state.clock.elapsedTime
+        }
+
+        const progress = getTravelProgress(state.clock.elapsedTime - startTimeRef.current, duration)
+        focus = [
+          lerpNumber(fromNode.position[0], toNode.position[0], progress),
+          0,
+          lerpNumber(fromNode.position[2], toNode.position[2], progress),
+        ]
+      }
+    }
+
+    if (!shouldGuideCamera) {
+      shouldGuideCamera = state.clock.elapsedTime < focusUntilRef.current
+    }
+
+    if (!shouldGuideCamera) {
+      focusRef.current = [controls?.target.x ?? focusRef.current[0], 0, controls?.target.z ?? focusRef.current[2]]
+      return
+    }
+
+    const ease = 1 - Math.pow(0.001, delta)
+    focusRef.current = [
+      lerpNumber(focusRef.current[0], focus[0], ease),
+      0,
+      lerpNumber(focusRef.current[2], focus[2], ease),
+    ]
+
+    camera.position.set(focusRef.current[0], camera.position.y, focusRef.current[2])
+    camera.lookAt(focusRef.current[0], 0, focusRef.current[2])
+    controls?.target.set(focusRef.current[0], 0, focusRef.current[2])
+    controls?.update()
+  })
+
+  return null
+}
+
 function ThreeMapScene({
   model,
   onSelectNode,
-  onTravelNode,
+  travelAnimation,
+  onTravelAnimationComplete,
 }: {
   model: ReturnType<typeof getMapRenderModel>
   onSelectNode: (nodeId?: string) => void
-  onTravelNode: (nodeId: string) => void
+  travelAnimation?: MapTravelAnimation
+  onTravelAnimationComplete: () => void
 }) {
   return (
     <>
       <MapPerspectiveCamera />
+      <MapCameraRig model={model} travelAnimation={travelAnimation} />
       <group>
         {model.edges.map((edge) => <ThreeMapEdge key={edge.id} edge={edge} />)}
-        {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} onTravelNode={onTravelNode} />)}
+        {model.nodes.map((node) => <ThreeMapNode key={node.id} node={node} onSelectNode={onSelectNode} />)}
       </group>
+      <MapTravelPawn model={model} travelAnimation={travelAnimation} onComplete={onTravelAnimationComplete} />
       <OrbitControls makeDefault target={[0, 0, 0]} enableRotate={false} enablePan enableZoom screenSpacePanning minDistance={6} maxDistance={18} zoomSpeed={0.75} panSpeed={0.7} />
     </>
   )
@@ -2565,13 +2830,19 @@ function MapGraphView({
   state,
   selectedNodeId,
   onSelectNode,
+  travelLocked,
   onTravelNode,
+  travelAnimation,
+  onTravelAnimationComplete,
   compact = false,
 }: {
   state: CampaignState
   selectedNodeId?: string
   onSelectNode: (nodeId?: string) => void
+  travelLocked: boolean
   onTravelNode: (nodeId: string) => void
+  travelAnimation?: MapTravelAnimation
+  onTravelAnimationComplete: () => void
   compact?: boolean
 }) {
   const model = getMapRenderModel(state, selectedNodeId)
@@ -2582,11 +2853,77 @@ function MapGraphView({
         <h2 className="sr-only">Route atlas</h2>
         <p className="sr-only">Trace known roads and select a marked place for its details.</p>
         <div className={`relative overflow-hidden border border-[var(--color-border)] bg-[var(--color-surface)] ${compact ? 'h-80 min-h-80' : 'h-[min(72svh,760px)] min-h-[420px] lg:h-full'}`} aria-label="Interactive route atlas">
-          <Canvas dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 12, 0], fov: 30, near: 0.1, far: 60 }} onPointerMissed={() => onSelectNode(undefined)}>
+          <Canvas dpr={[1.5, 2.5]} gl={{ antialias: true, powerPreference: 'high-performance' }} camera={{ position: [0, 12, 0], fov: 30, near: 0.1, far: 60 }} onPointerMissed={() => { if (!travelAnimation) onSelectNode(undefined) }}>
             <color attach="background" args={['#0F0F0D']} />
-            <ThreeMapScene model={model} onSelectNode={onSelectNode} onTravelNode={onTravelNode} />
+            <ThreeMapScene model={model} onSelectNode={(nodeId) => { if (!travelAnimation) onSelectNode(nodeId) }} travelAnimation={travelAnimation} onTravelAnimationComplete={onTravelAnimationComplete} />
           </Canvas>
+          <div className="pointer-events-none absolute bottom-3 left-3 z-10 w-[min(22rem,calc(100%-1.5rem))]">
+            <MapLocationDetails state={state} selectedNodeId={selectedNodeId} travelLocked={travelLocked} onTravelNode={onTravelNode} />
+          </div>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MapLocationDetails({
+  state,
+  selectedNodeId,
+  travelLocked,
+  onTravelNode,
+}: {
+  state: CampaignState
+  selectedNodeId?: string
+  travelLocked: boolean
+  onTravelNode: (nodeId: string) => void
+}) {
+  const model = getMapRenderModel(state, selectedNodeId)
+  const selectedNode = model.nodes.find((node) => node.id === model.selectedVisibleNodeId)
+
+  if (!selectedNode) {
+    return (
+      <Card className="iff-chrome-panel pointer-events-auto bg-background/95 backdrop-blur-sm">
+        <CardContent className="p-4">
+          <p className="ui-label">Map location</p>
+          <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Select a marked place on the map to inspect it here.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const disabledReasonId = `${selectedNode.id}-map-overlay-travel-reason`
+
+  return (
+    <Card className="iff-chrome-panel pointer-events-auto bg-background/95 backdrop-blur-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="ui-label">Map location</p>
+            <CardTitle className="mt-1 font-[var(--font-display)] text-2xl font-light leading-tight">{selectedNode.label}</CardTitle>
+          </div>
+          {selectedNode.explored || selectedNode.current ? <MapNodeTypeBadge nodeType={selectedNode.nodeType} /> : null}
+        </div>
+      </CardHeader>
+      <Separator />
+      <CardContent className="flex flex-col gap-3 p-4">
+        <div className="flex flex-wrap gap-2">
+          {selectedNode.current ? <Badge variant="secondary">current location</Badge> : null}
+          {!selectedNode.explored ? <Badge variant="secondary">unexplored</Badge> : null}
+        </div>
+        <p className="font-serif text-sm leading-6 text-muted-foreground">{selectedNode.description}</p>
+        <span title={selectedNode.travelDisabledReason} className="block w-full">
+          <Button
+            type="button"
+            size="sm"
+            className="w-full"
+            disabled={travelLocked || Boolean(selectedNode.travelDisabledReason)}
+            aria-describedby={selectedNode.travelDisabledReason ? disabledReasonId : undefined}
+            onClick={() => onTravelNode(selectedNode.id)}
+          >
+            {travelLocked ? 'Travelling…' : 'Travel'}
+          </Button>
+        </span>
+        {selectedNode.travelDisabledReason ? <span id={disabledReasonId} className="sr-only">{selectedNode.travelDisabledReason}</span> : null}
       </CardContent>
     </Card>
   )
@@ -2672,34 +3009,18 @@ function ObjectiveStrip({ hint }: { hint?: string }) {
 function ChoicePanel({
   state,
   isAdvancing,
-  activeAnimatedEntry,
   confirmingChoiceId,
   onCancelConfirm,
   onBeginScene,
   onChoose,
-  onSkipAnimation,
 }: {
   state: CampaignState
   isAdvancing: boolean
-  activeAnimatedEntry?: FeedEntry
   confirmingChoiceId?: string
   onCancelConfirm: () => void
   onBeginScene: () => void
   onChoose: (choice: StoryChoice) => void
-  onSkipAnimation: () => void
 }) {
-  if (activeAnimatedEntry) {
-    return (
-      <Card className="iff-chrome-panel">
-        <CardContent>
-          <Button type="button" size="lg" onClick={onSkipAnimation} disabled={Boolean(activeAnimatedEntry.streaming)} className="w-full font-serif text-base">
-            {activeAnimatedEntry.streaming ? <><LoaderCircleIcon className="size-4 animate-spin" aria-hidden="true" />Thinking</> : 'Continue'}
-          </Button>
-        </CardContent>
-      </Card>
-    )
-  }
-
   if (state.outcome !== 'running') {
     return null
   }
@@ -2804,12 +3125,12 @@ function InventoryItemCard({
           onSelect(item.id)
         }
       }}
-      className="group flex w-full items-start gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted"
+      className="group flex w-full flex-col gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted sm:flex-row sm:items-start"
     >
-      <StoryIcon id={item.iconAssetId ?? 'codex'} label={item.name} className="size-11 shrink-0" />
+      <StoryIcon id={item.iconAssetId ?? 'codex'} label={item.name} className="size-11 shrink-0 self-start" />
       <span className="block min-w-0 flex-1">
-        <span className="block truncate text-base font-semibold leading-5 text-foreground">{item.name}</span>
-        <span className="mt-1 block truncate font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
+        <span className="block break-words text-base font-semibold leading-5 text-foreground sm:truncate">{item.name}</span>
+        <span className="mt-1 block break-words font-serif text-sm leading-6 text-muted-foreground sm:truncate">{item.description}</span>
         {item.consumable ? (
           <span className="mt-2 flex flex-wrap gap-1.5">
             <span className="inline-flex border border-[var(--color-border-strong)] px-1.5 py-0.5 font-sans text-[0.6rem] font-semibold uppercase tracking-wider text-muted-foreground">Consumable</span>
@@ -2833,17 +3154,18 @@ function CharacterPanel({
   const selectedItem = visibleInventory.find((item) => item.id === selectedItemId) ?? visibleInventory[0]
 
   return (
-    <Card className="iff-chrome-panel min-h-0 lg:h-full">
+    <Card className="iff-chrome-panel min-h-0 flex-1 lg:h-full">
       <CardHeader className="shrink-0">
         <CardTitle className="text-2xl">Character</CardTitle>
       </CardHeader>
-      <CardContent className="min-h-0 flex-1">
-        <section className="flex min-h-0 max-h-[min(70svh,560px)] flex-col gap-5 overflow-y-auto border border-[var(--color-border)] bg-background p-5 lg:max-h-none">
-          <div className="flex items-start gap-4">
-            <span className="inline-flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border border-[var(--color-border)] bg-background">
+      <CardContent className="min-h-0 flex-1 p-0">
+        <ScrollArea className="h-[min(70svh,560px)] min-h-0 lg:h-full">
+          <section className="flex min-h-0 flex-col gap-5 border border-[var(--color-border)] bg-background p-4 sm:p-5 lg:min-h-full">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <span className="inline-flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden border border-[var(--color-border)] bg-background sm:h-24 sm:w-[4.5rem]">
               <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h4 className="text-xl font-semibold">{state.player.name}</h4>
               <p className="text-sm text-muted-foreground">{state.player.role}</p>
               <Badge className="mt-2" variant="secondary">
@@ -2852,10 +3174,10 @@ function CharacterPanel({
             </div>
           </div>
 
-          <div className="font-serif text-sm leading-6 text-muted-foreground">
+          <div className="font-serif text-sm leading-relaxed text-muted-foreground">
             <p>{state.player.backstory.origin}</p>
-            <p className="mt-2">{state.player.backstory.wound}</p>
-            <p className="mt-2">{state.player.backstory.want}</p>
+            <p className="mt-1.5">{state.player.backstory.wound}</p>
+            <p className="mt-1.5">{state.player.backstory.want}</p>
           </div>
 
           <div>
@@ -2881,7 +3203,7 @@ function CharacterPanel({
               <span className="font-sans text-xs text-muted-foreground">{visibleInventory.length} carried</span>
             </div>
             {visibleInventory.length > 0 ? (
-              <ScrollArea className="mt-3 h-72 border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <ScrollArea className="mt-3 h-auto max-h-none border border-[var(--color-border)] bg-[var(--color-surface)] sm:h-72">
                 <div className="flex flex-col gap-2 p-2 pr-3">
                 {visibleInventory.map((item) => (
                   <InventoryItemCard key={item.id} item={item} selected={selectedItem?.id === item.id} onSelect={onSelectItem} />
@@ -2892,7 +3214,8 @@ function CharacterPanel({
               <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">Tamsin is carrying no visible keepsakes right now.</p>
             )}
           </div>
-        </section>
+          </section>
+        </ScrollArea>
       </CardContent>
     </Card>
   )
@@ -2965,7 +3288,7 @@ function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
         <CardContent className="grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]">
           <img src={player.portraitAsset} alt="" className="h-44 w-32 border border-[var(--color-border)] object-cover" />
           <div className="flex flex-col gap-4">
-            <p className="font-serif text-base leading-7 text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
+            <p className="font-serif text-base leading-relaxed text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary">HP {player.health.current}/{player.health.max}</Badge>
               {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
@@ -3018,7 +3341,7 @@ function App() {
   const [llmSettings, setLlmSettings] = useState<LlmSettings>(() => {
     try {
       const saved = window.localStorage.getItem(llmSettingsStorageKey)
-      return saved ? { ...defaultLlmSettings, ...(JSON.parse(saved) as Partial<LlmSettings>) } : defaultLlmSettings
+      return saved ? normalizeLlmSettings(JSON.parse(saved)) : defaultLlmSettings
     } catch {
       return defaultLlmSettings
     }
@@ -3040,11 +3363,15 @@ function App() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [inventoryExpanded, setInventoryExpanded] = useState(false)
+  const [activeMainTab, setActiveMainTab] = useState<MainTab>('story')
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>()
+  const [travelAnimation, setTravelAnimation] = useState<MapTravelAnimation>()
+  const [isTravelAnimating, setIsTravelAnimating] = useState(false)
   const [selectedItemId, setSelectedItemId] = useState(initialState.player.inventory[0]?.id)
   const [llmError, setLlmError] = useState<string | undefined>()
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking')
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [llmSetupHint, setLlmSetupHint] = useState<string>()
   const [testConnectionMessage, setTestConnectionMessage] = useState<string>()
   const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
   const [newContentWaiting, setNewContentWaiting] = useState(false)
@@ -3059,8 +3386,10 @@ function App() {
   const previousInventoryIdsRef = useRef(initialState.player.inventory.map((item) => item.id).join('|'))
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
-  const activeAnimatedEntry = useMemo(() => getActiveAnimatedEntry(campaign), [campaign])
+  const currentLlmPreset = useMemo(() => getLlmPreset(llmSettings.presetId), [llmSettings.presetId])
+  const effectiveLlmOptions = useMemo(() => getEffectiveLlmOptions(llmSettings), [llmSettings])
   const resolvedThemeMode = themeMode === 'system' ? systemThemeMode : themeMode
+  const isStoryLocked = isAdvancing || isTravelAnimating
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedThemeMode
@@ -3096,21 +3425,28 @@ function App() {
     async function checkConnection() {
       setOllamaStatus('checking')
       try {
-        const response = await fetch(`${normalizeOllamaBase(llmSettings.endpoint)}/api/tags`)
-        if (!response.ok) throw new Error(`Ollama returned ${response.status}`)
-        const data = (await response.json()) as { models?: Array<{ name?: string }> }
-        const names = data.models?.map((model) => model.name).filter((name): name is string => Boolean(name)) ?? []
+        const names = await fetchOllamaModelNames(llmSettings.endpoint)
         if (!cancelled) {
           setAvailableModels(names)
           setOllamaStatus('connected')
-          if (names.length > 0 && !names.includes(llmSettings.model)) {
-            setLlmSettings((settings) => ({ ...settings, model: names[0] }))
+          if (names.length === 0) {
+            setLlmSetupHint('Ollama is running, but no local models are installed. Try: ollama pull qwen2.5:7b')
+          } else if (!names.includes(llmSettings.model) && llmSettings.presetId !== 'custom') {
+            const bestModel = getBestInstalledModel(names, llmSettings.presetId)
+            const presetOptions = getLlmPreset(llmSettings.presetId).options
+            setLlmSettings((settings) => ({ ...settings, model: bestModel, options: presetOptions }))
+            setLlmSetupHint(`Auto-selected ${bestModel} from your installed Ollama models.`)
+          } else if (!names.includes(llmSettings.model)) {
+            setLlmSetupHint(`Custom model "${llmSettings.model}" is not installed. Choose an installed model or pull it with Ollama.`)
+          } else {
+            setLlmSetupHint(undefined)
           }
         }
       } catch {
         if (!cancelled) {
           setAvailableModels([])
           setOllamaStatus('unreachable')
+          setLlmSetupHint(`Ollama is not reachable at ${normalizeOllamaBase(llmSettings.endpoint)}. Start Ollama or update the endpoint in advanced settings.`)
         }
       }
     }
@@ -3120,7 +3456,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [llmSettings.endpoint, llmSettings.model])
+  }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId])
 
   useEffect(() => {
     const previousHealth = previousHealthRef.current
@@ -3206,33 +3542,10 @@ function App() {
       })
     }
     const fullText = await streamLocalText(llmSettings, prompt, async (chunk) => {
-      for (const character of chunk) {
-        appendGeneratedText(character)
-
-        const delay = getTypewriterDelay(character)
-        if (delay > 0) {
-          await wait(delay)
-        }
-      }
+      appendGeneratedText(chunk)
     })
 
     return fullText
-  }
-
-  const skipActiveTextAnimation = () => {
-    const entryId = getActiveAnimatedEntry(campaign)?.id
-
-    if (!entryId) {
-      return
-    }
-
-    updateFeedEntry(entryId, (entry) => {
-      if (entry.streaming) {
-        return entry
-      }
-
-      return { ...entry, animationSkipped: true }
-    })
   }
 
   const appendDebugEntry = (entry: Omit<DebugEntry, 'id'>) => {
@@ -3307,7 +3620,7 @@ function App() {
           ...feedEntries,
           { id: createId('scene'), turn, kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
           { id: createId('location'), ...createLocationFeedEntry(node, turn), eventId: event.id },
-          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true },
+          { id: currentNarratorEntryId, turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true },
         ],
         debugFeed: state.debugFeed,
       }))
@@ -3339,7 +3652,7 @@ function App() {
   }
 
   const travelToNode = async (nodeId: string) => {
-    if (isAdvancing || campaign.outcome !== 'running' || getActiveAnimatedEntry(campaign)) {
+    if (isStoryLocked || campaign.outcome !== 'running') {
       return
     }
 
@@ -3353,6 +3666,19 @@ function App() {
       return
     }
 
+    setActiveMainTab('map')
+    setSelectedNodeId(nodeId)
+    setIsTravelAnimating(true)
+    setTravelAnimation({ id: createId('travel'), fromNodeId: campaign.currentNodeId, toNodeId: destination.id })
+  }
+
+  const completeTravelAnimation = async () => {
+    if (!travelAnimation || !isTravelAnimating) {
+      return
+    }
+
+    const nodeId = travelAnimation.toNodeId
+    const destination = getNode(nodeId)
     const wasExplored = campaign.exploredNodeIds.includes(nodeId)
     const travelledState: CampaignState = {
       ...campaign,
@@ -3363,12 +3689,15 @@ function App() {
       storyNpcs: campaign.storyNpcs.map((npc) => ({ ...npc, currentNodeId: nodeId })),
     }
 
+    setCampaign(travelledState)
     setSelectedNodeId(nodeId)
+    setTravelAnimation(undefined)
+    setIsTravelAnimating(false)
     await openSceneFromState(travelledState, [{ turn: campaign.turn, kind: 'system', speaker: 'Map', nodeId, text: wasExplored ? `Travelled to ${destination.publicName}.` : `Discovered ${destination.publicName}.` }])
   }
 
   const beginScene = async () => {
-    if (isAdvancing || campaign.outcome !== 'running') {
+    if (isStoryLocked || campaign.outcome !== 'running') {
       return
     }
 
@@ -3376,7 +3705,7 @@ function App() {
   }
 
   const chooseAction = async (choice: StoryChoice) => {
-    if (isAdvancing || campaign.outcome !== 'running' || !campaign.currentEvent || getChoiceDisabledReason(campaign, choice)) {
+    if (isStoryLocked || campaign.outcome !== 'running' || !campaign.currentEvent || getChoiceDisabledReason(campaign, choice)) {
       return
     }
 
@@ -3419,16 +3748,16 @@ function App() {
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
       appendDebugEntry({ turn, label: 'Resolution prompt', text: resolutionPrompt })
       appendFeedEntry({ ...createLocationFeedEntry(node, turn), eventId: event.id })
-      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
+      const resolutionEntryId = appendFeedEntry({ turn, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
       appendDirectionLintWarning(stateAtStart, resolutionText, turn, 'Choice resolution')
-      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: effects.map(getEffectBadge), streaming: false }))
+      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: getEffectBadges(effects), streaming: false }))
 
       let updatedStoryNpcs = stateAtStart.storyNpcs
       if (sceneNpc) {
         const npcPrompt = buildNpcResponsePrompt(stateAtStart, event, sceneNpc, choice, resolutionText)
         appendDebugEntry({ turn, label: 'NPC prompt', text: npcPrompt })
-        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', revealMode: 'animated', streaming: true })
+        const npcEntryId = appendFeedEntry({ turn, kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
         const npcTurn = await streamFeedEntry(npcEntryId, npcPrompt)
         appendDirectionLintWarning(stateAtStart, npcTurn, turn, 'NPC response')
         updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
@@ -3468,7 +3797,6 @@ function App() {
           nodeId: appliedState.currentNodeId,
           text: outcomeText,
           generatedText: outcomeText,
-          revealMode: 'animated',
         })
       }
     } catch (error) {
@@ -3485,10 +3813,48 @@ function App() {
     setLlmError(undefined)
     setPendingRetry(undefined)
     setSelectedNodeId(undefined)
+    setTravelAnimation(undefined)
+    setIsTravelAnimating(false)
+    setActiveMainTab('story')
     setSelectedItemId(initialState.player.inventory[0]?.id)
     setCampaign(initialState)
     setAppPhase('protagonist-intro')
   }
+
+  const applyLlmPreset = (presetId: LlmPresetId) => {
+    setLlmSettings((settings) => {
+      if (presetId === 'custom') {
+        return { ...settings, presetId }
+      }
+
+      const preset = getLlmPreset(presetId)
+      const model = availableModels.length > 0 ? getBestInstalledModel(availableModels, presetId) : preset.preferredModels[0] ?? settings.model
+
+      return { ...settings, presetId, model, options: preset.options }
+    })
+  }
+
+  const updateLlmOption = (option: keyof OllamaGenerationOptions, value: string) => {
+    const numericValue = Number(value)
+
+    if (!Number.isFinite(numericValue)) {
+      return
+    }
+
+    setLlmSettings((settings) => ({
+      ...settings,
+      presetId: 'custom',
+      options: sanitizeLlmOptions({ ...settings.options, [option]: numericValue }),
+    }))
+  }
+
+  const sidebarOllamaStatus = ollamaStatus === 'connected'
+    ? availableModels.length > 0
+      ? `Connected · ${llmSettings.model}`
+      : 'Ollama running · no models installed'
+    : ollamaStatus === 'checking'
+      ? 'Checking Ollama…'
+      : 'Ollama unreachable · check setup'
 
   if (appPhase === 'story-select') {
     return <StorySelectionScreen onSelect={() => setAppPhase('protagonist-intro')} />
@@ -3511,17 +3877,17 @@ function App() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
-                  <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
-                  {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check settings'}
+              <div className="flex flex-col gap-3">
+                <div className="flex min-w-0 items-center gap-2 font-sans text-xs text-muted-foreground">
+                  <span className={`size-2 shrink-0 rounded-full ${ollamaStatus === 'connected' ? 'bg-emerald-500' : ollamaStatus === 'checking' ? 'bg-amber-400' : 'bg-red-500'}`} />
+                  <span className="truncate whitespace-nowrap">{sidebarOllamaStatus}</span>
                 </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Button type="button" variant="outline" size="sm" className="w-full whitespace-nowrap sm:flex-1" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
                     {resolvedThemeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
                     {resolvedThemeMode === 'dark' ? 'Light' : 'Dark'}
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+                  <Button type="button" variant="outline" size="sm" className="w-full whitespace-nowrap sm:flex-1" onClick={() => setSettingsOpen(true)}>
                     <SettingsIcon data-icon="inline-start" />
                     Settings
                   </Button>
@@ -3545,11 +3911,11 @@ function App() {
                 </Alert>
               ) : null}
 
-              <Tabs defaultValue="story" className="flex min-h-0 flex-1 flex-col gap-3">
+              <Tabs value={activeMainTab} onValueChange={(value) => setActiveMainTab(value as MainTab)} className="flex min-h-0 flex-1 flex-col gap-3">
                 <TabsList className="shrink-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
-                  <TabsTrigger value="story" className="inline-flex items-center gap-2"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
+                  <TabsTrigger value="story" disabled={isTravelAnimating} className="inline-flex items-center gap-2"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
                   <TabsTrigger value="map" className="inline-flex items-center gap-2"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
-                  <TabsTrigger value="character" className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
+                  <TabsTrigger value="character" disabled={isTravelAnimating} className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
                 </TabsList>
                 <TabsContent value="story" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
@@ -3573,13 +3939,13 @@ function App() {
                     </CardContent>
                   </Card>
                   <section aria-label="Next actions" className="shrink-0">
-                    <ChoicePanel state={campaign} isAdvancing={isAdvancing} activeAnimatedEntry={activeAnimatedEntry} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} onSkipAnimation={skipActiveTextAnimation} />
+                    <ChoicePanel state={campaign} isAdvancing={isStoryLocked} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} />
                   </section>
                 </TabsContent>
                 <TabsContent value="map" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-                  <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} onTravelNode={travelToNode} />
+                  <MapGraphView state={campaign} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} travelLocked={isStoryLocked} onTravelNode={travelToNode} travelAnimation={travelAnimation} onTravelAnimationComplete={completeTravelAnimation} />
                 </TabsContent>
-                <TabsContent value="character" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+                <TabsContent value="character" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} />
                 </TabsContent>
               </Tabs>
@@ -3587,8 +3953,8 @@ function App() {
         </section>
 
         {settingsOpen ? (
-          <div className="fixed inset-0 bg-background/80" onClick={() => setSettingsOpen(false)}>
-            <div className="min-h-0 overflow-y-auto">
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80" onClick={() => setSettingsOpen(false)}>
+            <div className="min-h-svh">
               <Card className="iff-chrome-panel ml-auto min-h-svh w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
                 <CardHeader>
                   <CardTitle>Options</CardTitle>
@@ -3596,18 +3962,44 @@ function App() {
                 </CardHeader>
                 <CardContent className="flex max-w-2xl flex-col gap-4">
                   <section className="border border-[var(--color-border)] bg-background p-4">
-                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
-                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Restart the adventure from the beginning whenever you want a clean road.</p>
-                    <Button type="button" variant="outline" className="mt-3" onClick={resetCampaign} disabled={isAdvancing}>
-                      <RotateCcwIcon data-icon="inline-start" />
-                      Reset story
-                    </Button>
+                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Local narrator</p>
+                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">
+                      IFF uses Ollama on your machine. Auto mode chooses a good installed model, so story contributors can focus on scenes and choices instead of model tuning.
+                    </p>
+                    <label className="mt-3 flex flex-col gap-1.5 text-sm font-medium">
+                      Preset
+                      <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.presetId} onChange={(event) => applyLlmPreset(event.target.value as LlmPresetId)}>
+                        {llmModelPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                        <option value="custom">Custom</option>
+                      </select>
+                    </label>
+                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">
+                      {llmSettings.presetId === 'custom' ? 'Manual model and generation settings.' : currentLlmPreset.description}
+                    </p>
+                    <div className="mt-3 grid gap-2 font-sans text-xs text-muted-foreground sm:grid-cols-2">
+                      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                        <span className="block uppercase tracking-[0.14em]">Current model</span>
+                        <span className="mt-1 block font-serif text-sm text-foreground">{llmSettings.model}</span>
+                      </div>
+                      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                        <span className="block uppercase tracking-[0.14em]">Installed models</span>
+                        <span className="mt-1 block font-serif text-sm text-foreground">{ollamaStatus === 'connected' ? availableModels.length : 'Unknown'}</span>
+                      </div>
+                    </div>
+                    {llmSetupHint ? <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{llmSetupHint}</p> : null}
+                    {ollamaStatus === 'connected' && availableModels.length === 0 ? (
+                      <div className="mt-3 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-mono text-xs text-foreground">
+                        ollama pull qwen2.5:7b<br />
+                        <span className="text-muted-foreground"># lower-resource Llama option</span><br />
+                        ollama pull llama3.2:3b
+                      </div>
+                    ) : null}
                   </section>
 
                   <Separator />
 
                   <Button type="button" variant="ghost" className="justify-between" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)}>
-                    Advanced diagnostics
+                    Advanced local model settings
                     <span className="text-xs text-muted-foreground">{advancedOpen ? 'Hide' : 'Show'}</span>
                   </Button>
 
@@ -3620,15 +4012,38 @@ function App() {
                       <label className="flex flex-col gap-1.5 text-sm font-medium">
                         Runtime model
                         {availableModels.length > 0 ? (
-                          <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))}>
+                          <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))}>
                             {availableModels.map((model) => <option key={model} value={model}>{model}</option>)}
                           </select>
-                        ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, model: event.target.value }))} />}
+                        ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))} />}
                       </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Temperature
+                          <Input type="number" min="0" max="1.5" step="0.01" value={effectiveLlmOptions.temperature} onChange={(event) => updateLlmOption('temperature', event.target.value)} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Top-p
+                          <Input type="number" min="0.1" max="1" step="0.01" value={effectiveLlmOptions.top_p} onChange={(event) => updateLlmOption('top_p', event.target.value)} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Repeat penalty
+                          <Input type="number" min="0.8" max="1.5" step="0.01" value={effectiveLlmOptions.repeat_penalty} onChange={(event) => updateLlmOption('repeat_penalty', event.target.value)} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Context size
+                          <Input type="number" min="2048" max="8192" step="256" value={effectiveLlmOptions.num_ctx} onChange={(event) => updateLlmOption('num_ctx', event.target.value)} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 text-sm font-medium">
+                          Max generated tokens
+                          <Input type="number" min="120" max="800" step="20" value={effectiveLlmOptions.num_predict} onChange={(event) => updateLlmOption('num_predict', event.target.value)} />
+                        </label>
+                      </div>
                       <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
                         <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
-                        {ollamaStatus === 'connected' ? 'Connected' : ollamaStatus === 'checking' ? 'Checking Ollama…' : 'Ollama unreachable — check your settings.'}
+                        {sidebarOllamaStatus}
                       </div>
+                      {llmSetupHint ? <p className="font-serif text-sm text-muted-foreground">{llmSetupHint}</p> : null}
                       <Button type="button" variant="outline" onClick={async () => {
                         try {
                           await assertLocalModelAvailable(llmSettings)
@@ -3651,6 +4066,17 @@ function App() {
                       </Button>
                     </section>
                   ) : null}
+
+                  <Separator />
+
+                  <section className="border border-[var(--color-border)] bg-background p-4">
+                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
+                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Restart the adventure from the beginning whenever you want a clean road.</p>
+                    <Button type="button" variant="outline" className="mt-3" onClick={resetCampaign} disabled={isStoryLocked}>
+                      <RotateCcwIcon data-icon="inline-start" />
+                      Reset story
+                    </Button>
+                  </section>
                 </CardContent>
               </Card>
 

@@ -48,10 +48,16 @@ The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sen
 - Node.js 20+
 - npm
 - [Ollama](https://ollama.com/) running locally
-- A local model, for example:
+- A local model. Recommended default:
 
 ```bash
 ollama pull qwen2.5:7b
+```
+
+Lower-resource Llama alternative:
+
+```bash
+ollama pull llama3.2:3b
 ```
 
 ### Install
@@ -68,12 +74,13 @@ npm run dev
 
 Open the local Vite URL shown in your terminal.
 
-By default the app expects:
+By default the app uses:
 
 - Endpoint: `http://localhost:11434`
-- Model: `qwen2.5:7b`
+- Model mode: **Auto**
+- Recommended model: `qwen2.5:7b`
 
-You can change these in the app’s **Settings** panel. The app can also test the configured model connection.
+Auto mode picks the best installed Ollama model it recognizes, so story contributors normally do not need to configure model settings. You can change presets, choose a specific model, tune generation options, and test the configured connection in the app’s **Settings** panel.
 
 ## Scripts
 

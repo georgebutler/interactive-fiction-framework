@@ -22,7 +22,7 @@ function TooltipContent({ className, sideOffset = 6, ...props }: React.Component
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
-        className={cn("max-w-xs rounded-none border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs leading-relaxed text-zinc-300 shadow-md", className)}
+        className={cn("max-w-xs rounded-none border border-border bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground shadow-md", className)}
         {...props}
       />
     </TooltipPrimitive.Portal>
