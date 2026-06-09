@@ -125,7 +125,14 @@ The main play screen is split into a compact left column and a tabbed story area
 
 ## Story architecture
 
-The current sample schema lives in `src/App.tsx`. The core types are intentionally plain so a contributor can understand the story model without learning a separate editor.
+The reusable story schema types live in `src/framework/schema.ts`. Bundled stories live under `src/stories/`; the current sample, **The Open Graves**, lives in `src/stories/open-graves.ts` and is exposed through `src/stories/index.ts`.
+
+### Source layout
+
+- `src/framework/schema.ts` — reusable story schema and story bundle types.
+- `src/stories/open-graves.ts` — authored sample story content, assets, codex summaries, and sample-specific runtime config.
+- `src/stories/index.ts` — story registry/default story export.
+- `src/App.tsx` — current app runtime, UI, prompting, and story bundle wiring.
 
 ### `StorySchema`
 
@@ -290,8 +297,6 @@ Avoid broad mood guidance such as `The world is grim` or `Magic feels rare`. Put
 
 Useful future improvements:
 
-- Move sample story schemas out of `src/App.tsx`
-- Add a story registry
 - Add Zod validation for story schemas
 - Add automated tests for progression and blockers
 - Add more local model adapters beyond Ollama
