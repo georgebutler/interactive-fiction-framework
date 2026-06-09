@@ -2,16 +2,17 @@
 
 **Interactive Fiction Framework (IFF)** is a local-first React framework for playable, schema-driven interactive fiction.
 
-IFF combines authored story structure with local LLM narration. Writers define the protagonist, places, events, choices, inventory, consequences, and memory. The model adds prose and maintains the protagonist’s visible condition as text, while the code owns deterministic state such as items, map movement, revealed locations, flags, and endings.
+IFF combines authored story structure with local LLM narration. Writers define one or more playable protagonists, places, events, choices, inventory, consequences, and memory. The model adds prose and maintains the protagonist’s visible condition as text, while the code owns deterministic state such as items, map movement, revealed locations, flags, and endings.
 
-The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sent by royal order to investigate opened graves around Redvale. The story is grounded medieval fiction: the “lich” is treated as rumor, fear, or an explanation people reach for rather than a guaranteed answer.
+The current sample story, **The Open Graves**, lets the player choose between Tamsin, a grave-tender with high mental fortitude and low strength, and Corvin Hale, a retired mercenary with high strength and low mental fortitude. The story is grounded medieval fiction: the “lich” is treated as rumor, fear, or an explanation people reach for rather than a guaranteed answer.
 
 ## What it does
 
-- Presents a playable protagonist rather than an autonomous party.
+- Presents a choosable protagonist rather than an autonomous party.
 - Streams story prose from a local Ollama model.
 - Keeps player agency intact by offering authored options instead of asking the model to choose for the player.
 - Tracks deterministic state such as inventory, flags, known NPCs, revealed map nodes, and outcomes, while showing condition as prose.
+- Seeds each run with code-owned creative texture so local narration can vary weather, omens, social pressure, and sensory motifs without taking ownership of durable game state.
 - Provides a tabbed play view for **Story**, **Map**, and **Character**.
 - Shows codex tooltips inline for known places, people, objects, and rumors.
 - Includes a top-down interactive map with discovered routes, unknown route hints, optional selection, and travel buttons.
@@ -22,7 +23,7 @@ The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sen
 
 **The Open Graves** is the built-in sample story. It is intentionally small and practical so the framework mechanics are easy to inspect:
 
-- **Player character:** Tamsin, a gravedigger under royal order.
+- **Player characters:** Tamsin, a grave-tender with high mental fortitude, or Corvin Hale, a retired mercenary with high strength but lower mental fortitude.
 - **Core problem:** graves are opening near Redvale, and the court needs proof more than rumors.
 - **Tone:** grounded medieval hardship, plain social pressure, burial customs, fear, mud, and practical tools.
 - **Structure:** a handful of connected locations, weighted events, authored choices, item checks, consequences, and a return-to-court ending.
@@ -136,7 +137,7 @@ The reusable story schema types live in `src/framework/schema.ts`. Bundled stori
 
 ### `StorySchema`
 
-Defines the story title, premise, objective, opening narration, goal node, fixed rules, public codex terms, playable protagonist, map nodes, and events.
+Defines the story title, premise, objective, opening narration, goal node, fixed rules, public codex terms, playable protagonists, map nodes, and events.
 
 `fixedRules` are absolute model constraints. Each string should be one world law, written as a prohibition or absolute fact.
 
@@ -144,16 +145,19 @@ Defines the story title, premise, objective, opening narration, goal node, fixed
 
 ### `PlayableCharacter`
 
-Defines the character the user plays:
+Defines a character the user can choose to play:
 
 - Name and role
 - Portrait
 - Current condition text
 - Inventory
 - Skill tags
+- Aptitudes such as strength and mental fortitude
 - Voice guidance
 - Backstory
 - Memory seeds
+
+Protagonist choice is presentation state, not plot branching by default. The sample uses protagonist voice, aptitudes, and backstory to color generated prose, while inventory, flags, map movement, revealed nodes, and outcomes remain deterministic code-owned state.
 
 ### `InventoryItem`
 
@@ -268,7 +272,7 @@ This is intended for story authors and framework development rather than normal 
 A good story contribution should include:
 
 - A clear premise
-- One playable protagonist with a practical goal
+- One or more playable protagonists with a practical goal
 - 3–8 locations
 - A small inventory with meaningful use cases
 - Authored choices with deterministic effects

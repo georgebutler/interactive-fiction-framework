@@ -27,6 +27,13 @@ export type PlayerBackstory = {
   privateKnowledge: string
 }
 
+export type CharacterAptitudeLevel = 'low' | 'medium' | 'high'
+
+export type PlayableCharacterAptitudes = {
+  strength: CharacterAptitudeLevel
+  mentalFortitude: CharacterAptitudeLevel
+}
+
 export type PlayableCharacter = {
   id: string
   name: string
@@ -36,6 +43,7 @@ export type PlayableCharacter = {
   condition: string
   inventory: InventoryItem[]
   skillTags: SkillTag[]
+  aptitudes: PlayableCharacterAptitudes
   voice: PlayerVoice
   backstory: PlayerBackstory
   memory: string[]
@@ -166,10 +174,10 @@ export type StorySchema = {
    * Each string is one world law, written as a prohibition or absolute fact.
    * Example: "The dead cannot speak unless the lich wills it."
    * Example: "King Osric's word is law. No NPC defies him openly."
-   */
+  */
   fixedRules: string[]
   codexTerms: string[]
-  player: PlayableCharacter
+  players: [PlayableCharacter, ...PlayableCharacter[]]
   nodes: StoryNode[]
   events: StoryEvent[]
 }

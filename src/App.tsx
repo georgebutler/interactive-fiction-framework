@@ -41,6 +41,7 @@ type DebugEntry = {
 
 type CampaignState = {
   player: PlayableCharacter
+  runProfile: RunProfile
   storyNpcs: StoryNpc[]
   currentNodeId: string
   currentEvent?: StoryEvent
@@ -52,6 +53,21 @@ type CampaignState = {
   flags: Record<string, boolean>
   canonicalFacts: Record<string, string>
   outcome: 'running' | 'won' | 'lost'
+}
+
+type RunCreativeBrief = {
+  weather: string
+  omen: string
+  socialPressure: string
+  sensoryMotif: string
+  complicationTexture: string
+}
+
+type RunProfile = {
+  id: string
+  seed: number
+  rngState: number
+  creativeBrief: RunCreativeBrief
 }
 
 type LlmSettings = {
@@ -93,6 +109,7 @@ const skillTagDefinitions = activeStory.skillTagDefinitions
 const allKnownItems = activeStory.allKnownItems
 const codexTermTargets = activeStory.codexTermTargets
 const codexTermSummaries = activeStory.codexTermSummaries
+const playableCharacters = storySchema.players
 
 const nodeById = new Map(storySchema.nodes.map((node) => [node.id, node]))
 const eventById = new Map(storySchema.events.map((event) => [event.id, event]))
@@ -149,38 +166,76 @@ function getNextThemeMode(themeMode: ThemeMode): ThemeMode {
   return themeMode === 'dark' ? 'light' : 'dark'
 }
 
-const initialNodeId = activeStory.runtime.initialNodeId
-const initialNode = getNode(initialNodeId)
-
-const initialState: CampaignState = {
-  player: storySchema.player,
-  storyNpcs: [],
-  currentNodeId: initialNodeId,
-  currentEvent: undefined,
-  sceneOpened: false,
-  exploredNodeIds: activeStory.runtime.initialExploredNodeIds ?? [initialNodeId],
-  eventHistory: [],
-  feed: [
-    {
-      id: 'opening',
-      kind: 'narration',
-      speaker: 'Narrator',
-      nodeId: initialNodeId,
-      text: storySchema.openingNarration,
-    },
-  ],
-  debugFeed: [],
-  flags: {},
-  canonicalFacts: {
-    [initialNode.publicName]: getNodeCanonicalFact(initialNode),
-  },
-  outcome: 'running',
-}
-
-initialState.feed.unshift({ id: 'opening-location', ...createLocationFeedEntry(initialNode) })
-
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function createRunSeed() {
+  if (globalThis.crypto?.getRandomValues) {
+    const values = new Uint32Array(1)
+    globalThis.crypto.getRandomValues(values)
+    return values[0] || Date.now()
+  }
+
+  return Date.now()
+}
+
+function nextRandom(rngState: number) {
+  const nextState = (rngState * 1664525 + 1013904223) >>> 0
+
+  return {
+    value: nextState / 0x100000000,
+    rngState: nextState,
+  }
+}
+
+function pickFromSeeded<T>(items: readonly T[], rngState: number) {
+  const next = nextRandom(rngState)
+
+  return {
+    item: items[Math.floor(next.value * items.length)] ?? items[0],
+    rngState: next.rngState,
+  }
+}
+
+function createRunProfile(): RunProfile {
+  const seed = createRunSeed()
+  let rngState = seed
+  const weather = pickFromSeeded(['cold rain', 'dry wind', 'ground fog', 'low thunder', 'sour-smelling drizzle'], rngState)
+  rngState = weather.rngState
+  const omen = pickFromSeeded(['a bell-sound no one admits hearing', 'crows gathering where no grain lies', 'dogs refusing the road', 'ashes moving against the wind'], rngState)
+  rngState = omen.rngState
+  const socialPressure = pickFromSeeded(['villagers looking for someone to blame', 'court servants pretending not to listen', 'deserters watching every carried tool', 'families hiding grief behind work'], rngState)
+  rngState = socialPressure.rngState
+  const sensoryMotif = pickFromSeeded(['wet iron', 'old smoke', 'split pine', 'grave-cold mud', 'stale rushes'], rngState)
+  rngState = sensoryMotif.rngState
+  const complicationTexture = pickFromSeeded(['evidence appears in awkward public places', 'people disagree about what they saw', 'help always comes with a demand', 'the safest route feels morally ugly'], rngState)
+  rngState = complicationTexture.rngState
+
+  return {
+    id: createId('run'),
+    seed,
+    rngState,
+    creativeBrief: {
+      weather: weather.item,
+      omen: omen.item,
+      socialPressure: socialPressure.item,
+      sensoryMotif: sensoryMotif.item,
+      complicationTexture: complicationTexture.item,
+    },
+  }
+}
+
+function clonePlayableCharacter(player: PlayableCharacter): PlayableCharacter {
+  return {
+    ...player,
+    inventory: player.inventory.map((item) => ({ ...item, tags: item.tags ? [...item.tags] : undefined })),
+    skillTags: [...player.skillTags],
+    aptitudes: { ...player.aptitudes },
+    voice: { ...player.voice },
+    backstory: { ...player.backstory },
+    memory: [...player.memory],
+  }
 }
 
 function createLocationFeedEntry(node: StoryNode): Omit<FeedEntry, 'id'> {
@@ -193,6 +248,38 @@ function createLocationFeedEntry(node: StoryNode): Omit<FeedEntry, 'id'> {
       name: node.name,
       nodeType: node.nodeType,
     },
+  }
+}
+
+function createInitialCampaignState(player: PlayableCharacter): CampaignState {
+  const initialNodeId = activeStory.runtime.initialNodeId
+  const initialNode = getNode(initialNodeId)
+
+  return {
+    player: clonePlayableCharacter(player),
+    runProfile: createRunProfile(),
+    storyNpcs: [],
+    currentNodeId: initialNodeId,
+    currentEvent: undefined,
+    sceneOpened: false,
+    exploredNodeIds: activeStory.runtime.initialExploredNodeIds ?? [initialNodeId],
+    eventHistory: [],
+    feed: [
+      { id: 'opening-location', ...createLocationFeedEntry(initialNode) },
+      {
+        id: 'opening',
+        kind: 'narration',
+        speaker: 'Narrator',
+        nodeId: initialNodeId,
+        text: storySchema.openingNarration,
+      },
+    ],
+    debugFeed: [],
+    flags: {},
+    canonicalFacts: {
+      [initialNode.publicName]: getNodeCanonicalFact(initialNode),
+    },
+    outcome: 'running',
   }
 }
 
@@ -454,14 +541,14 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
   return fullText.trim()
 }
 
-function weightedChoice<T>(items: T[], getWeight: (item: T) => number) {
+function weightedChoice<T>(items: T[], getWeight: (item: T) => number, randomValue: number) {
   const totalWeight = items.reduce((total, item) => total + Math.max(0, getWeight(item)), 0)
 
   if (items.length === 0 || totalWeight <= 0) {
     return undefined
   }
 
-  let roll = Math.random() * totalWeight
+  let roll = randomValue * totalWeight
 
   for (const item of items) {
     roll -= Math.max(0, getWeight(item))
@@ -485,8 +572,12 @@ function drawStoryEvent(state: CampaignState) {
     .filter((entry): entry is { event: StoryEvent; weight: number } => Boolean(entry))
   const availableEvents = weightedEvents.filter(({ event }) => !recentEventIds.has(event.id))
   const pool = availableEvents.length > 0 ? availableEvents : weightedEvents
+  const next = nextRandom(state.runProfile.rngState)
 
-  return weightedChoice(pool, ({ weight }) => weight)?.event ?? storySchema.events[0]
+  return {
+    event: weightedChoice(pool, ({ weight }) => weight, next.value)?.event ?? storySchema.events[0],
+    rngState: next.rngState,
+  }
 }
 
 function hasInventoryItem(player: PlayableCharacter, itemId: string) {
@@ -659,6 +750,11 @@ function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
 
 function getAvailableChoices(state: CampaignState) {
   return state.currentEvent?.choices ?? []
+}
+
+function getApplicableChoiceSkillTags(choice: StoryChoice, player: PlayableCharacter) {
+  const playerSkillTags = new Set(player.skillTags)
+  return choice.skillTags.filter((skill) => playerSkillTags.has(skill))
 }
 
 function getChoiceVarietyWarnings(event: StoryEvent) {
@@ -896,8 +992,10 @@ function getCodexReferenceSummary(reference: CodexReference, facts?: CampaignSta
   }
 
   if (reference.type === 'person') {
-    if (reference.targetId === storySchema.player.id || reference.term.toLowerCase() === storySchema.player.name.toLowerCase()) {
-      return getPlayerCodexSummary(storySchema.player)
+    const matchingPlayer = storySchema.players.find((player) => reference.targetId === player.id || reference.term.toLowerCase() === player.name.toLowerCase())
+
+    if (matchingPlayer) {
+      return getPlayerCodexSummary(matchingPlayer)
     }
 
     const person = reference.targetId ? storySchema.events.map((event) => event.npcTemplate).find((npc) => npc?.id === reference.targetId) : undefined
@@ -951,6 +1049,8 @@ Role: ${player.role}
 Current condition: ${player.condition}
 Visible inventory: ${player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
 Internal skill tags: ${player.skillTags.join(', ')}
+Strength aptitude: ${player.aptitudes.strength}
+Mental fortitude aptitude: ${player.aptitudes.mentalFortitude}
 Public presentation: ${player.voice.publicStyle}
 Authorial constraints: fear of ${player.voice.fear}; wants ${player.voice.desire}; contradiction: ${player.voice.contradiction}
 Origin: ${player.backstory.origin}
@@ -1055,6 +1155,23 @@ If a generated passage would violate any rule, rewrite it before outputting.
 function buildObjectivePressureBlock() {
   return `--- CURRENT OBJECTIVE ---
 The player's goal: ${storySchema.objective.summary}. Your narration should keep this goal felt but not stated — the world should apply pressure toward it without the narrator ever saying "you must" or "remember your mission."
+---`
+}
+
+function buildRunCreativeBriefBlock(state: CampaignState) {
+  const brief = state.runProfile.creativeBrief
+
+  return `--- RUN CREATIVE BRIEF ---
+This run's transient texture:
+- Weather pressure: ${brief.weather}
+- Omen: ${brief.omen}
+- Social pressure: ${brief.socialPressure}
+- Sensory motif: ${brief.sensoryMotif}
+- Complication texture: ${brief.complicationTexture}
+
+Use these to vary atmosphere, NPC behavior, sensory detail, and scene presentation.
+You may invent transient visible details that fit the current event.
+You must not invent durable state: no new inventory, flags, map routes, endings, factions, or solved mysteries unless listed by schema or hard effects.
 ---`
 }
 
@@ -1166,6 +1283,8 @@ function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
 
 ${buildWorldRulesBlock()}
 
+${buildRunCreativeBriefBlock(state)}
+
 ${buildObjectivePressureBlock()}
 
 ${buildEstablishedFactsBlock(state)}
@@ -1196,6 +1315,9 @@ Rules:
 - Make the situation concrete and leave room for the player to choose from the authored options.
 - Do not write dialogue for the player character.
 - Do not decide the player's action.
+- Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
+- If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
 - ${playerAgencyRule}
 - Do not invent inventory, victory, loss, map movement, or hidden discoveries.
 - You may describe visible strain, wounds, fatigue, relief, composure, or other condition changes naturally, but never as HP, health points, bars, levels, numbers, or percentages.
@@ -1212,6 +1334,8 @@ function buildPlayerActionResolutionPrompt(state: CampaignState, event: StoryEve
   return `${gameMasterNarratorFrame}
 
 ${buildWorldRulesBlock()}
+
+${buildRunCreativeBriefBlock(state)}
 
 ${buildObjectivePressureBlock()}
 
@@ -1234,7 +1358,7 @@ Writer intent: ${choice.writerIntent}
 Neutral summary: ${choice.neutralSummary}
 Action prompt: ${choice.actionPrompt}
 Player-facing mode: ${choice.mode}
-Player-facing skill color: ${choice.skillTags.join(', ') || 'none'}
+Relevant selected-protagonist skill color: ${getApplicableChoiceSkillTags(choice, state.player).join(', ') || 'none'}
 Hard state effects handled by code:
 ${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
 Recent visible story:
@@ -1249,6 +1373,9 @@ Rules:
 - Do not add unselected motives, regrets, memories, emotions, thoughts, or private conclusions for the player character.
 - Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
 - If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
+- Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
+- If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
 - ${playerAgencyRule}
 - Do not invent additional inventory, map, victory, or loss changes beyond the hard effects listed above.
 - You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
@@ -1263,6 +1390,8 @@ function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: St
   return `${gameMasterNarratorFrame}
 
 ${buildWorldRulesBlock()}
+
+${buildRunCreativeBriefBlock(state)}
 
 ${buildObjectivePressureBlock()}
 
@@ -1296,6 +1425,9 @@ Rules:
 - React to the selected option and the NPC's own want.
 - Do not invent exact dialogue, private thoughts, motives, or additional actions for the player character.
 - If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
+- Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
+- If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
 - ${playerAgencyRule}
 - Do not invent inventory, map, victory, or loss changes.
 - You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
@@ -2049,6 +2181,7 @@ function ChoicePanel({
           const isAction = choice.displayStyle === 'action'
           const isDialogue = choice.displayStyle === 'dialogue'
           const isPassive = choice.displayStyle === 'passive'
+          const applicableSkillTags = getApplicableChoiceSkillTags(choice, state.player)
 
           return (
             <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${isDialogue ? 'pl-7' : ''} ${isPassive ? 'py-2.5' : ''} ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
@@ -2064,9 +2197,9 @@ function ChoicePanel({
                     {confirming ? `Confirm: ${choice.label}` : choice.label}
                   </span>
                 </span>
-                {!isPassive && choice.skillTags.length > 0 ? (
+                {!isPassive && applicableSkillTags.length > 0 ? (
                   <span className="mt-2 flex flex-wrap gap-1.5">
-                    {choice.skillTags.map((skill) => (
+                    {applicableSkillTags.map((skill) => (
                       <span key={skill} className="inline-flex items-center gap-1.5 border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
                         <span className="opacity-60">Skill:</span>
                         <span>{skillTagDefinitions[skill].label}</span>
@@ -2155,8 +2288,8 @@ function CharacterPanel({
               <h4 className="text-xl font-semibold">{state.player.name}</h4>
               <p className="text-sm text-muted-foreground">{state.player.role}</p>
               <div className="mt-3 border-l border-[var(--color-border)] pl-3">
-                <p className="ui-label">Condition</p>
-                <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{state.player.condition}</p>
+                <p className="ui-label">Current Objective</p>
+                <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{storySchema.objective.summary}</p>
               </div>
             </div>
           </div>
@@ -2167,11 +2300,18 @@ function CharacterPanel({
             <p className="mt-1.5">{state.player.backstory.want}</p>
           </div>
 
-          <section className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-            <p className="ui-label">Current Objective</p>
-            <h4 className="mt-1 font-[var(--font-display)] text-2xl font-light leading-tight">{storySchema.title}</h4>
-            <p className="mt-3 font-serif text-sm leading-6 text-foreground">{storySchema.objective.summary}</p>
-          </section>
+          <div>
+            <h5 className="text-sm font-medium">Condition</h5>
+            <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{state.player.condition}</p>
+          </div>
+
+          <div>
+            <h5 className="text-sm font-medium">Aptitudes</h5>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge variant="outline">Strength: {state.player.aptitudes.strength}</Badge>
+              <Badge variant="outline">Mental fortitude: {state.player.aptitudes.mentalFortitude}</Badge>
+            </div>
+          </div>
 
           <div>
             <h5 className="text-sm font-medium">Strengths</h5>
@@ -2242,19 +2382,53 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
   )
 }
 
-function StorySelectionScreen({ onSelect }: { onSelect: () => void }) {
+function StorySelectionScreen({
+  players,
+  selectedPlayerId,
+  onSelectPlayer,
+  onSelect,
+}: {
+  players: PlayableCharacter[]
+  selectedPlayerId: string
+  onSelectPlayer: (playerId: string) => void
+  onSelect: () => void
+}) {
   return (
     <main className="flex min-h-svh items-center justify-center bg-background p-4 text-foreground">
-      <Card className="iff-chrome-panel max-w-2xl">
+      <Card className="iff-chrome-panel max-w-4xl">
         <CardHeader>
           <p className="ui-label">Choose a story</p>
           <CardTitle className="font-[var(--font-display)] text-4xl font-light">{storySchema.title}</CardTitle>
           <CardDescription className="font-serif text-base leading-7">{storySchema.premise}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="border border-[var(--color-border)] bg-background p-4">
-            <p className="ui-label">Protagonist</p>
-            <p className="mt-2 font-serif text-lg">{storySchema.player.name}, {storySchema.player.role}</p>
+          <div>
+            <p className="ui-label">Choose a protagonist</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {players.map((player) => {
+                const selected = player.id === selectedPlayerId
+
+                return (
+                  <button
+                    key={player.id}
+                    type="button"
+                    aria-pressed={selected}
+                    className="flex gap-3 border border-[var(--color-border)] bg-background p-4 text-left transition-colors hover:bg-muted aria-pressed:border-foreground aria-pressed:bg-muted"
+                    onClick={() => onSelectPlayer(player.id)}
+                  >
+                    <img src={player.portraitAsset} alt="" className="h-24 w-16 shrink-0 border border-[var(--color-border)] object-cover" />
+                    <span className="min-w-0">
+                      <span className="block font-serif text-xl leading-tight">{player.name}</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">{player.role}</span>
+                      <span className="mt-3 flex flex-wrap gap-2">
+                        <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
+                        <Badge variant="outline">Mental: {player.aptitudes.mentalFortitude}</Badge>
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <Button type="button" size="lg" onClick={onSelect}>
             Select
@@ -2265,8 +2439,7 @@ function StorySelectionScreen({ onSelect }: { onSelect: () => void }) {
   )
 }
 
-function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
-  const player = storySchema.player
+function ProtagonistIntroScreen({ player, onBegin }: { player: PlayableCharacter; onBegin: () => void }) {
   const visibleInventory = player.inventory.filter((item) => item.visible)
 
   return (
@@ -2282,6 +2455,8 @@ function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
           <div className="flex flex-col gap-4">
             <p className="font-serif text-base leading-relaxed text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
             <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
+              <Badge variant="outline">Mental fortitude: {player.aptitudes.mentalFortitude}</Badge>
               {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
             </div>
             <Button type="button" size="lg" onClick={onBegin}>Begin</Button>
@@ -2323,7 +2498,10 @@ function EndScreen({ state }: { state: CampaignState }) {
 }
 
 function App() {
-  const [campaign, setCampaign] = useState<CampaignState>(initialState)
+  const defaultPlayer = playableCharacters[0]
+  const [selectedProtagonistId, setSelectedProtagonistId] = useState(defaultPlayer.id)
+  const selectedProtagonist = playableCharacters.find((player) => player.id === selectedProtagonistId) ?? defaultPlayer
+  const [campaign, setCampaign] = useState<CampaignState>(() => createInitialCampaignState(defaultPlayer))
   const [llmSettings, setLlmSettings] = useState<LlmSettings>(defaultLlmSettings)
   const [themeMode, setThemeMode] = useState<ThemeMode>('system')
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(() => getSystemThemeMode())
@@ -2336,7 +2514,7 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>()
   const [travelAnimation, setTravelAnimation] = useState<MapTravelAnimation>()
   const [isTravelAnimating, setIsTravelAnimating] = useState(false)
-  const [selectedItemId, setSelectedItemId] = useState(initialState.player.inventory[0]?.id)
+  const [selectedItemId, setSelectedItemId] = useState(defaultPlayer.inventory[0]?.id)
   const [llmError, setLlmError] = useState<string | undefined>()
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking')
   const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -2500,12 +2678,19 @@ function App() {
     try {
       await assertLocalModelAvailable(llmSettings)
 
-      const event = stateAtStart.currentEvent ?? drawStoryEvent(stateAtStart)
+      const drawn = stateAtStart.currentEvent
+        ? { event: stateAtStart.currentEvent, rngState: stateAtStart.runProfile.rngState }
+        : drawStoryEvent(stateAtStart)
+      const event = drawn.event
       const node = getNode(stateAtStart.currentNodeId)
       const nodeCanonicalFacts = setCanonicalFact(stateAtStart.canonicalFacts, node.publicName, node.canonicalDescription)
       const { storyNpcs, canonicalFacts } = getOrCreateEventNpc({ ...stateAtStart, canonicalFacts: nodeCanonicalFacts }, event)
       const sceneState = {
         ...stateAtStart,
+        runProfile: {
+          ...stateAtStart.runProfile,
+          rngState: drawn.rngState,
+        },
         currentEvent: event,
         sceneOpened: true,
         storyNpcs,
@@ -2642,7 +2827,7 @@ function App() {
       })
       appendDebugEntry({
         label: 'Selected choice',
-        text: `${choice.label}\nMode: ${choice.mode}\nSkill tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
+        text: `${choice.label}\nMode: ${choice.mode}\nRelevant selected-protagonist skill tags: ${getApplicableChoiceSkillTags(choice, stateAtStart.player).join(', ') || 'none'}\nAuthored choice tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
       })
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
@@ -2750,12 +2935,33 @@ function App() {
       ? 'Checking Ollama…'
       : 'Ollama unreachable · check setup'
 
+  const beginWithSelectedProtagonist = () => {
+    const nextCampaign = createInitialCampaignState(selectedProtagonist)
+    setCampaign(nextCampaign)
+    setSelectedNodeId(nextCampaign.currentNodeId)
+    setSelectedItemId(nextCampaign.player.inventory[0]?.id)
+    setTravelAnimation(undefined)
+    setIsTravelAnimating(false)
+    setConfirmingChoiceId(undefined)
+    setLlmError(undefined)
+    setPendingRetry(undefined)
+    setActiveMainTab('story')
+    setAppPhase('playing')
+  }
+
   if (appPhase === 'story-select') {
-    return <StorySelectionScreen onSelect={() => setAppPhase('protagonist-intro')} />
+    return (
+      <StorySelectionScreen
+        players={playableCharacters}
+        selectedPlayerId={selectedProtagonistId}
+        onSelectPlayer={setSelectedProtagonistId}
+        onSelect={() => setAppPhase('protagonist-intro')}
+      />
+    )
   }
 
   if (appPhase === 'protagonist-intro') {
-    return <ProtagonistIntroScreen onBegin={() => setAppPhase('playing')} />
+    return <ProtagonistIntroScreen player={selectedProtagonist} onBegin={beginWithSelectedProtagonist} />
   }
 
   return (

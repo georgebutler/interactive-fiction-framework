@@ -34,22 +34,30 @@ const skillTagDefinitions: Record<SkillTag, SkillTagDefinition> = {
     label: 'Steady Hands',
     summary: 'Can keep control during delicate, dangerous, or physical work.',
   },
+  'raw-strength': {
+    label: 'Raw Strength',
+    summary: 'Can apply force, carry weight, and hold ground when a scene turns physical.',
+  },
+  'mental-fortitude': {
+    label: 'Mental Fortitude',
+    summary: 'Can remain visibly composed under dread, pressure, and exhaustion.',
+  },
 }
 
-const graveSpade: InventoryItem = {
-  id: 'grave-spade',
-  name: "Tamsin's Shovel",
-  description: 'Her working tool, with a polished haft, a nicked iron edge, and the weight of every honest grave she has dug. Tamsin trusts it more than court steel.',
+const fieldSpade: InventoryItem = {
+  id: 'field-spade',
+  name: 'Field Spade',
+  description: 'A plain iron-edged spade with a worn haft, useful for testing ground, levering boards, and keeping distance from things that should stay buried.',
   tags: ['tool'],
   iconAssetId: 'road',
   consumable: false,
   visible: true,
 }
 
-const graveAsh: InventoryItem = {
-  id: 'grave-ash',
-  name: 'Holy Water',
-  description: 'A small stoppered flask blessed by a village priest. Tamsin has seen it make the restless dead flinch and slow.',
+const blessedWater: InventoryItem = {
+  id: 'blessed-water',
+  name: 'Blessed Water',
+  description: 'A small stoppered flask blessed by a village priest. Local rumor says it can make the restless dead flinch and slow.',
   tags: ['church', 'water'],
   iconAssetId: 'lantern',
   consumable: true,
@@ -99,7 +107,7 @@ const crackedSpearHead: InventoryItem = {
 const bellClapper: InventoryItem = {
   id: 'bell-clapper',
   name: 'Silver Bell Clapper',
-  description: 'The missing tongue of an old burial bell, dark with age and bright where Tamsin rubbed it clean.',
+  description: 'The missing tongue of an old burial bell, dark with age and bright where road grit has been rubbed away.',
   tags: ['church', 'silver'],
   iconAssetId: 'codex',
   consumable: false,
@@ -119,21 +127,22 @@ const boneCharm: InventoryItem = {
 const storySchema: StorySchema = {
   id: 'kings-lich-playable',
   title: 'The Open Graves',
-  premise: 'A royal order sends a practical gravedigger through opened graves, frightened villages, and a court that would rather call sacrifice service.',
+  premise: 'A royal order sends an unlikely investigator through opened graves, frightened villages, and a court that would rather call sacrifice service.',
   objective: {
     summary: 'Follow the opened graves back to the thing stirring them, survive, and return with proof the court cannot bury.',
     successCondition: 'Reach Graymere Hall Return with proof from the Old Barrow and make the king acknowledge it.',
     failureCondition: 'Return without proof, abandon the investigation, or let the court bury the truth again.',
     currentHint: 'Answer the royal order, then follow the opened graves out of Graymere Hall.',
   },
-  openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. Tamsin stands before King Osric with grave dirt still worked into her hands, a sealed writ waiting on the table between them, and the dead roads of Redvale opening somewhere beyond the rain.',
+  openingNarration: 'Graymere Hall smells of wet wool, old rushes, and men trying not to look afraid. A sealed writ waits on the table before King Osric, and the dead roads of Redvale open somewhere beyond the rain.',
   victoryResolution: 'The proof reaches the throne, and the dead are given names the court can no longer spend quietly.',
-  defeatResolution: 'Tamsin falls short of the proof, and the dead keep walking beneath orders no living mouth will confess.',
+  defeatResolution: 'The proof falls short of the throne, and the dead keep walking beneath orders no living mouth will confess.',
   goalNodeId: 'king-return',
   designNote:
     'A contributor-authored playable story about agency-preserving narration, original scenes, varied authored choices, and lightweight consequences. The local model narrates within the schema; code owns state.',
   fixedRules: [
-    'The end user plays the authored protagonist directly.',
+    'The end user plays the selected protagonist directly.',
+    'The story-critical plot does not depend on which protagonist was selected; protagonist details may color narration but cannot change hard state.',
     'Authored choices decide what the protagonist can attempt; generated prose may enrich but cannot override mechanical state.',
     'Inventory is visible story state and changes only through authored effects.',
     'The protagonist’s condition is visible prose, never a number, bar, level, or percentage.',
@@ -141,31 +150,65 @@ const storySchema: StorySchema = {
     'Unexplored places, hidden routes, and future event tables remain unrevealed until discovered.',
     'All story material and style guidance must remain original and generic, without named protected references.',
   ],
-  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Old Barrow', 'Graymere Hall', "Tamsin's Shovel", 'Holy Water', 'Iron Nails', 'Sealed Writ', 'the lich'],
-  player: {
-    id: 'tamsin',
-    name: 'Tamsin',
-    role: 'Gravedigger under royal order',
-    portraitAsset: publicDomainPortraitAsset,
-    color: '#7dd3fc',
-    condition: 'Tired, mud-spattered, and steady enough to keep moving.',
-    inventory: [graveSpade, graveAsh, ironNails, royalWrit],
-    skillTags: ['grave-lore', 'plain-speech', 'steady-hands'],
-    voice: {
-      publicStyle: 'dry, practical, and too familiar with death to flatter anyone',
-      innerStyle: 'watchful, restrained, bitterly funny when fear gets close',
-      fear: 'being spent by powerful people who will misname it courage',
-      desire: 'to put the dead back down and return to work that makes sense',
-      contradiction: 'she respects burial customs but distrusts anyone who turns sacrifice into policy',
+  codexTerms: ['Redvale', 'King Osric', 'Blackpine Road', 'Ash Farms', 'Old Watchtower', 'Old Barrow', 'Graymere Hall', 'Field Spade', 'Blessed Water', 'Iron Nails', 'Sealed Writ', 'the lich'],
+  players: [
+    {
+      id: 'tamsin',
+      name: 'Tamsin',
+      role: 'Grave-tender under royal order',
+      portraitAsset: publicDomainPortraitAsset,
+      color: '#7dd3fc',
+      condition: 'Tired, mud-spattered, and steady enough to keep moving.',
+      inventory: [fieldSpade, blessedWater, ironNails, royalWrit],
+      skillTags: ['grave-lore', 'plain-speech', 'mental-fortitude'],
+      aptitudes: {
+        strength: 'low',
+        mentalFortitude: 'high',
+      },
+      voice: {
+        publicStyle: 'dry, practical, and too familiar with death to flatter anyone',
+        innerStyle: 'watchful, restrained, bitterly funny when fear gets close',
+        fear: 'being spent by powerful people who will misname it courage',
+        desire: 'to put the dead back down and return to work that makes sense',
+        contradiction: 'respects burial customs but distrusts anyone who turns sacrifice into policy',
+      },
+      backstory: {
+        origin: 'Tamsin tends graves outside Redvale and was taken by levy because she knows burial ground better than court men do.',
+        wound: 'She has buried neighbors for orders written by people who never learned their names.',
+        want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
+        privateKnowledge: 'Burial customs can slow panic and make frightened witnesses useful, even when they cannot explain what they saw.',
+      },
+      memory: ['The king called it service because he could not bear to call it fear.'],
     },
-    backstory: {
-      origin: 'Tamsin digs graves outside Redvale and was taken by levy because she knows the dead too well.',
-      wound: 'She has buried neighbors for orders written by people who never learned their names.',
-      want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
-      privateKnowledge: 'Holy Water can slow a corpse for a few breaths if thrown into its eyes or mouth.',
+    {
+      id: 'corvin-hale',
+      name: 'Corvin Hale',
+      role: 'Retired mercenary under royal order',
+      portraitAsset: publicDomainPortraitAsset,
+      color: '#f97316',
+      condition: 'Broad-shouldered, travel-worn, and holding composure together by habit more than peace.',
+      inventory: [fieldSpade, blessedWater, ironNails, royalWrit],
+      skillTags: ['raw-strength', 'steady-hands', 'plain-speech'],
+      aptitudes: {
+        strength: 'high',
+        mentalFortitude: 'low',
+      },
+      voice: {
+        publicStyle: 'blunt, economical, and used to measuring exits before promises',
+        innerStyle: 'tight, guarded, and easily crowded by memories of old violence',
+        fear: 'freezing when the dead make battle feel personal again',
+        desire: 'to finish one last paid duty without becoming the kind of weapon courts keep reaching for',
+        contradiction: 'knows how to survive violence but no longer trusts what violence does to him',
+      },
+      backstory: {
+        origin: 'Corvin Hale left mercenary work after too many winter campaigns and was pulled back by a royal writ no village could refuse.',
+        wound: 'He has strength enough for doors, bodies, and road fights, but old horrors come back fastest when the dead move like soldiers.',
+        want: 'He wants to get through Redvale alive, deliver proof, and return to a life where no one gives him orders at sword-point.',
+        privateKnowledge: 'Frightened armed people watch posture before words; a calm stance can stop a fight before it starts.',
+      },
+      memory: ['The old companies taught him how to stand firm, not how to sleep afterward.'],
     },
-    memory: ['The king called it service because he could not bear to call it fear.'],
-  },
+  ],
   nodes: [
     {
       id: 'graymere-yard',
@@ -184,7 +227,7 @@ const storySchema: StorySchema = {
         {
           id: 'answer-royal-order',
           label: 'Answer the royal order',
-          reason: 'Tamsin needs to answer King Osric’s order before leaving Graymere Hall.',
+          reason: 'The royal order must be answered before the road out of Graymere Hall can mean anything.',
           activeEventId: 'royal-order',
           clearedByFlag: 'royal-order-answered',
         },
@@ -283,7 +326,7 @@ const storySchema: StorySchema = {
           blocker: {
             id: 'proof-required',
             label: 'Proof required',
-            reason: 'Returning to court empty-handed would give the king another order, not proof. Tamsin needs something that can show what is stirring the graves.',
+            reason: 'Returning to court empty-handed would give the king another order, not proof. Something from under the hill must show what is stirring the graves.',
             requiredItemId: 'bone-charm',
           },
         },
@@ -313,10 +356,10 @@ const storySchema: StorySchema = {
   events: [
     {
       id: 'royal-order',
-      name: 'The king spends a gravedigger',
+      name: 'The king spends another life',
       weight: 4,
       iconAssetId: 'road',
-      prompt: 'King Osric gives Tamsin a stamped writ and commands her to follow the opened graves back to their master.',
+      prompt: 'King Osric gives a stamped writ and commands one unwilling investigator to follow the opened graves back to their master.',
       currentHint: 'Get the order into plain words before choosing which road leaves the hall.',
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
@@ -335,7 +378,7 @@ const storySchema: StorySchema = {
           label: 'Make the king name what he is asking of you',
           neutralSummary: 'You pressed for plain accountability instead of accepting the order silently.',
           writerIntent: 'Offer a direct social option that challenges power without choosing exact words for the player.',
-          actionPrompt: 'The selected option is to press King Osric to speak plainly about sending a gravedigger where trained knights failed.',
+          actionPrompt: 'The selected option is to press King Osric to speak plainly about sending one more subject where trained knights failed.',
           mode: 'ask',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -369,7 +412,7 @@ const storySchema: StorySchema = {
       name: 'The armory offers insult as steel',
       weight: 5,
       iconAssetId: 'lantern',
-      prompt: 'The armory clerk gives Tamsin a spear with a split shaft and waits for her to accept the insult quietly.',
+      prompt: 'The armory clerk offers a spear with a split shaft and waits for the insult to be accepted quietly.',
       currentHint: 'Secure something useful before the road makes the court’s insult dangerous.',
       objectiveNodeId: 'old-watchtower',
       choices: [
@@ -384,7 +427,7 @@ const storySchema: StorySchema = {
           skillTags: ['plain-speech'],
           effects: [
             { type: 'gainItem', item: betterKnife },
-            { type: 'remember', text: 'Tamsin forced the armory to admit the first weapon was meant for someone disposable.' },
+            { type: 'remember', text: 'The armory had to admit the first weapon was meant for someone disposable.' },
             { type: 'moveToNode', nodeId: 'old-watchtower' },
           ],
         },
@@ -409,7 +452,7 @@ const storySchema: StorySchema = {
       name: 'A farmer asks which kind of mercy this is',
       weight: 3,
       iconAssetId: 'crossroads',
-      prompt: 'A farmer blocks the road with a child behind him and asks whether Tamsin has come to bury the village or save it.',
+      prompt: 'A farmer blocks the road with a child behind him and asks whether the royal writ has come to bury the village or save it.',
       currentHint: 'Listen for what the farms know about the first opened grave.',
       objectiveNodeId: 'ash-farms',
       npcTemplate: {
@@ -419,7 +462,7 @@ const storySchema: StorySchema = {
         canonicalDescription: 'Farmer Riel is a raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         description: 'A raw-eyed farmer with mud on his knees and a child gripping the back of his coat.',
         voice: 'plain, guarded, angry from fear',
-        want: 'Know whether Tamsin brings help or another royal lie.',
+        want: 'Know whether the royal order brings help or another lie.',
         knows: 'Three graves opened behind his byre after a bell rang under the hill.',
       },
       choices: [
@@ -459,7 +502,7 @@ const storySchema: StorySchema = {
       name: 'The field has too many open mouths',
       weight: 2,
       iconAssetId: 'forest',
-      prompt: 'Tamsin reaches a farm where old graves gape open and someone is trapped beneath a root cellar door.',
+      prompt: 'Old graves gape open around a farm while someone pounds from beneath a root cellar door.',
       currentHint: 'Control the danger long enough to learn what came from the east.',
       objectiveNodeId: 'blackpine-road',
       npcTemplate: {
@@ -490,19 +533,19 @@ const storySchema: StorySchema = {
           ],
         },
         {
-          id: 'throw-grave-ash',
-          label: 'Throw Holy Water into the nearest dead face',
-          neutralSummary: 'You spent the Holy Water for a fast opening, accepting that close work might hurt.',
+          id: 'throw-blessed-water',
+          label: 'Throw Blessed Water into the nearest dead face',
+          neutralSummary: 'You spent the Blessed Water for a fast opening, accepting that close work might hurt.',
           writerIntent: 'Offer a risky item-use option with a clear cost.',
-          actionPrompt: 'The selected option is to spend Holy Water to slow the nearest corpse long enough to open the root cellar.',
+          actionPrompt: 'The selected option is to spend Blessed Water to slow the nearest corpse long enough to open the root cellar.',
           mode: 'use-item',
           displayStyle: 'action',
           skillTags: ['grave-lore'],
-          requiresItem: 'grave-ash',
+          requiresItem: 'blessed-water',
           effects: [
-            { type: 'loseItem', itemId: 'grave-ash' },
+            { type: 'loseItem', itemId: 'blessed-water' },
             { type: 'remember', text: 'The dead clawed close while the cellar opened.' },
-            { type: 'remember', text: 'Holy Water can slow the dead, but only for moments.' },
+            { type: 'remember', text: 'Blessed Water can slow the dead, but only for moments.' },
             { type: 'moveToNode', nodeId: 'blackpine-road' },
           ],
         },
@@ -523,7 +566,7 @@ const storySchema: StorySchema = {
         canonicalDescription: 'Old Perrin is a sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         description: 'A sharp-eyed hermit who has survived by being useful and unpleasant in equal measure.',
         voice: 'rasping, blunt, fond of ugly truths',
-        want: 'Convince Tamsin that courage without care will only add a fresh body to the road.',
+        want: 'Convince the royal appointee that courage without care will only add a fresh body to the road.',
         knows: 'A fingerbone token lies near a silver burial bell under the hill, and the bell lacks its clapper.',
       },
       choices: [
@@ -570,14 +613,14 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'mark-safe-path',
-          label: "Mark a quiet path with Tamsin's Shovel",
-          neutralSummary: "You used Tamsin's Shovel as a practical tool to test ground and choose a safer route.",
+          label: 'Mark a quiet path with the Field Spade',
+          neutralSummary: 'You used the Field Spade as a practical tool to test ground and choose a safer route.',
           writerIntent: 'Offer a careful tool-use option that avoids stating obvious item affordances as tags.',
-          actionPrompt: "The selected option is to use Tamsin's Shovel to test soft earth and mark a path where the mist lies thinnest.",
+          actionPrompt: 'The selected option is to use the Field Spade to test soft earth and mark a path where the mist lies thinnest.',
           mode: 'use-item',
           displayStyle: 'action',
           skillTags: ['grave-lore', 'steady-hands'],
-          requiresItem: 'grave-spade',
+          requiresItem: 'field-spade',
           effects: [
             { type: 'remember', text: 'The mist thickens around disturbed royal dead.' },
             { type: 'moveToNode', nodeId: 'barrow-crypt' },
@@ -604,7 +647,7 @@ const storySchema: StorySchema = {
       name: 'Deserters ask the dead country for rent',
       weight: 2,
       iconAssetId: 'crossroads',
-      prompt: 'Hungry deserters demand Tamsin hand over food, tools, and the writ before entering the dead country.',
+      prompt: 'Hungry deserters demand food, tools, and the writ before allowing anyone into the dead country.',
       currentHint: 'Get past the deserters with enough strength and proof-seeking tools intact.',
       objectiveNodeId: 'barrow-crypt',
       npcTemplate: {
@@ -661,14 +704,14 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'hook-charm-with-spade',
-          label: "Hook the Bone Token with Tamsin's Shovel",
+          label: 'Hook the Bone Token with the Field Spade',
           neutralSummary: 'You used reach and leverage to take the charm without barehanded contact.',
           writerIntent: 'Offer a risky tool-use option where the cost is handled through visible narrative consequence.',
-          actionPrompt: "The selected option is to use Tamsin's Shovel to hook the Bone Token away from the dead man without touching it barehanded.",
+          actionPrompt: 'The selected option is to use the Field Spade to hook the Bone Token away from the dead man without touching it barehanded.',
           mode: 'use-item',
           displayStyle: 'action',
           skillTags: ['steady-hands'],
-          requiresItem: 'grave-spade',
+          requiresItem: 'field-spade',
           effects: [
             { type: 'gainItem', item: boneCharm },
             { type: 'remember', text: 'The corpse’s cold bit through the spade haft.' },
@@ -744,7 +787,7 @@ const storySchema: StorySchema = {
       name: 'Proof dirties the throne room',
       weight: 10,
       iconAssetId: 'lantern',
-      prompt: 'Tamsin returns to King Osric with mud, wounds, and whatever proof she could carry from under the hill.',
+      prompt: 'The investigation returns to King Osric with mud, wounds, and whatever proof could be carried from under the hill.',
       currentHint: 'Make the proof public enough that the court cannot rename it service.',
       choices: [
         {
@@ -758,7 +801,7 @@ const storySchema: StorySchema = {
           skillTags: ['plain-speech'],
           requiresItem: 'bone-charm',
           effects: [
-            { type: 'remember', text: 'Tamsin returned with proof and made the king look at what his command cost.' },
+            { type: 'remember', text: 'Proof returned to court and made the king look at what his command cost.' },
             { type: 'setFlag', flag: 'proof-delivered', value: true },
           ],
         },
@@ -772,7 +815,7 @@ const storySchema: StorySchema = {
           displayStyle: 'dialogue',
           skillTags: ['grave-lore', 'plain-speech'],
           effects: [
-            { type: 'remember', text: 'Tamsin demanded witness for the dead before accepting any royal gratitude.' },
+            { type: 'remember', text: 'The dead were given witness before any royal gratitude could make the matter clean.' },
             { type: 'setFlag', flag: 'proof-delivered', value: true },
           ],
         },
@@ -785,7 +828,7 @@ export const openGravesStory = {
   schema: storySchema,
   iconAssets: storyIconAssets,
   skillTagDefinitions,
-  allKnownItems: [graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm],
+  allKnownItems: [fieldSpade, blessedWater, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm],
   codexTermTargets,
   codexTermSummaries,
   runtime: {
@@ -797,11 +840,11 @@ export const openGravesStory = {
     },
     currentObjectiveText: {
       won: 'The proof has been delivered; the hall now has to hear the dead by name.',
-      lost: 'Tamsin can go no farther; the dead keep walking under orders no one will admit giving.',
+      lost: 'The road can go no farther; the dead keep walking under orders no one will admit giving.',
     },
     outcomeFeedText: {
       won: 'The proof has been delivered. The dead have names again, and the hall has to hear them.',
-      lost: 'Tamsin can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.',
+      lost: 'The road can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.',
     },
     narrationStyleRule: 'For texture, favor grounded medieval hardship, plain names, practical social friction, and simple burial customs; do not copy or evoke any specific external work.',
   },
