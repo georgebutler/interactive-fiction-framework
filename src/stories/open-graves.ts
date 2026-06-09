@@ -780,6 +780,22 @@ const storySchema: StorySchema = {
             { type: 'moveToNode', nodeId: 'king-return' },
           ],
         },
+        {
+          id: 'grab-proof-and-run',
+          label: 'Grab the Bone Token and run for the road',
+          neutralSummary: 'You took the ugly proof and fled before the barrow could close around you.',
+          writerIntent: 'Provide an always-available escape route so the player can never be trapped at the climax without a required item.',
+          actionPrompt: 'The selected option is to seize the Bone Token in the confusion and escape the barrow with proof. Make the escape costly and frightening, but do not block progress.',
+          mode: 'risk',
+          displayStyle: 'action',
+          skillTags: ['raw-strength', 'steady-hands'],
+          effects: [
+            { type: 'remember', text: 'The barrow nearly closed around the escape, but the Bone Token came out into living air.' },
+            { type: 'gainItem', item: boneCharm },
+            { type: 'setFlag', flag: 'lich-escaped-with-proof', value: true },
+            { type: 'moveToNode', nodeId: 'king-return' },
+          ],
+        },
       ],
     },
     {

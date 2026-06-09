@@ -1537,15 +1537,51 @@ function StoryTranscript({
   onRetry?: () => void
 }) {
   const references = getCodexReferences(state)
+  const locationGroups: Array<{ location?: FeedEntry; entries: FeedEntry[] }> = []
+
+  state.feed.forEach((entry) => {
+    if (entry.kind === 'location') {
+      locationGroups.push({ location: entry, entries: [] })
+      return
+    }
+
+    const currentGroup = locationGroups[locationGroups.length - 1]
+
+    if (currentGroup) {
+      currentGroup.entries.push(entry)
+      return
+    }
+
+    locationGroups.push({ entries: [entry] })
+  })
 
   return (
     <div className="iff-transcript border-0 p-0 shadow-none">
-      <div className="font-serif text-base leading-8 tracking-normal text-foreground">
-        {state.feed.map((entry) => (
-          <div key={entry.id}>
-            <FeedBlock entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
-          </div>
-        ))}
+      <div className="flex flex-col gap-6 font-serif text-base leading-8 tracking-normal text-foreground">
+        {locationGroups.map((group, groupIndex) => {
+          if (!group.location) {
+            return (
+              <div key={`feed-group-${groupIndex}`}>
+                {group.entries.map((entry) => (
+                  <FeedBlock key={entry.id} entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
+                ))}
+              </div>
+            )
+          }
+
+          const locationLabel = group.location.content?.name ?? group.location.text
+
+          return (
+            <fieldset key={group.location.id} className="min-w-0 border border-[var(--color-border)] px-4 pb-4 pt-2">
+              <legend className="ml-2 px-2 font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em] text-[var(--color-text-muted)]">
+                {locationLabel}
+              </legend>
+              {group.entries.map((entry) => (
+                <FeedBlock key={entry.id} entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
+              ))}
+            </fieldset>
+          )
+        })}
       </div>
     </div>
   )
@@ -1565,9 +1601,8 @@ function FeedBlock({
   if (entry.kind === 'location') {
     return (
       <section className="mb-4 mt-5 border-t border-[var(--color-border)] pt-3 first:mt-0 last:mb-0">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 text-[var(--color-text-muted)]">
+        <div className="flex flex-wrap items-baseline gap-2 text-[var(--color-text-muted)]">
           <p className="font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em]">{entry.content?.name ?? entry.text}</p>
-          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ? getNodeTypeLabel(entry.content.nodeType) : 'Place'}</p>
         </div>
       </section>
     )
