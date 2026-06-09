@@ -50,7 +50,7 @@ The current sample story, **The Open Graves**, follows Tamsin, a gravedigger sen
 - A local model. Recommended default:
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen3.6
 ```
 
 Lower-resource Llama alternative:
@@ -77,7 +77,7 @@ By default the app uses:
 
 - Endpoint: `http://localhost:11434`
 - Model mode: **Auto**
-- Recommended model: `qwen2.5:7b`
+- Recommended model: `qwen3.6`
 
 Auto mode picks the best installed Ollama model it recognizes, so story contributors normally do not need to configure model settings. You can change presets, choose a specific model, tune generation options, and test the configured connection in the app’s **Settings** panel.
 
@@ -296,7 +296,6 @@ Useful future improvements:
 - Add automated tests for progression and blockers
 - Add more local model adapters beyond Ollama
 - Improve map layout for larger stories
-- Add save slot management
 - Add authoring tools for codex terms and tooltip summaries
 
 ## License

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
 import type { Group } from 'three'
-import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, RotateCcwIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -231,6 +231,7 @@ type LlmSettings = {
   model: string
   presetId: LlmPresetId
   options: OllamaGenerationOptions
+  think: boolean
 }
 
 type LlmPresetId = 'auto' | 'fast' | 'balanced' | 'quality' | 'custom'
@@ -1052,7 +1053,7 @@ const llmModelPresets: LlmModelPreset[] = [
     id: 'auto',
     label: 'Auto',
     description: 'Pick the best installed local model for interactive fiction.',
-    preferredModels: ['qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b'],
+    preferredModels: ['qwen3.6:latest', 'qwen3.6', 'qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b'],
     options: { temperature: 0.68, top_p: 0.9, repeat_penalty: 1.08, num_ctx: 4096, num_predict: 320 },
   },
   {
@@ -1066,28 +1067,26 @@ const llmModelPresets: LlmModelPreset[] = [
     id: 'balanced',
     label: 'Balanced',
     description: 'Recommended balance of prose quality and speed.',
-    preferredModels: ['qwen2.5:7b', 'llama3.1:8b', 'mistral:7b'],
+    preferredModels: ['qwen3.6:latest', 'qwen3.6', 'qwen2.5:7b', 'llama3.1:8b', 'mistral:7b'],
     options: { temperature: 0.68, top_p: 0.9, repeat_penalty: 1.08, num_ctx: 4096, num_predict: 320 },
   },
   {
     id: 'quality',
     label: 'Quality',
     description: 'Richer prose if your machine can comfortably run larger models.',
-    preferredModels: ['qwen2.5:14b', 'llama3.1:8b', 'gemma2:9b', 'qwen2.5:7b'],
+    preferredModels: ['qwen3.6:latest', 'qwen3.6', 'qwen2.5:14b', 'llama3.1:8b', 'gemma2:9b', 'qwen2.5:7b'],
     options: { temperature: 0.72, top_p: 0.92, repeat_penalty: 1.1, num_ctx: 6144, num_predict: 420 },
   },
 ]
 
 const defaultLlmSettings: LlmSettings = {
   endpoint: 'http://localhost:11434',
-  model: 'qwen2.5:7b',
+  model: 'qwen3.6:latest',
   presetId: 'auto',
   options: llmModelPresets[0].options,
+  think: false,
 }
 
-const llmSettingsStorageKey = 'iff:llm-settings'
-const themeStorageKey = 'iff:theme'
-const campaignStorageKey = `iff:${storySchema.id}:run-1`
 const allKnownItems = [graveSpade, graveAsh, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm]
 
 function getSystemThemeMode(): ResolvedThemeMode {
@@ -1146,101 +1145,48 @@ function createLocationFeedEntry(node: StoryNode): Omit<FeedEntry, 'id'> {
   }
 }
 
-function normalizePlayableCharacter(saved: unknown): PlayableCharacter {
-  const candidate = saved && typeof saved === 'object' ? saved as Partial<PlayableCharacter> & { health?: unknown } : {}
-  const condition = typeof candidate.condition === 'string' && candidate.condition.trim()
-    ? candidate.condition.trim()
-    : candidate.health
-      ? 'Marked by the road so far, but still able to continue.'
-      : storySchema.player.condition
-
-  return {
-    ...storySchema.player,
-    id: typeof candidate.id === 'string' ? candidate.id : storySchema.player.id,
-    name: typeof candidate.name === 'string' ? candidate.name : storySchema.player.name,
-    role: typeof candidate.role === 'string' ? candidate.role : storySchema.player.role,
-    portraitAsset: typeof candidate.portraitAsset === 'string' ? candidate.portraitAsset : storySchema.player.portraitAsset,
-    color: typeof candidate.color === 'string' ? candidate.color : storySchema.player.color,
-    condition,
-    inventory: Array.isArray(candidate.inventory) ? candidate.inventory : storySchema.player.inventory,
-    skillTags: Array.isArray(candidate.skillTags) ? candidate.skillTags : storySchema.player.skillTags,
-    voice: candidate.voice ?? storySchema.player.voice,
-    backstory: candidate.backstory ?? storySchema.player.backstory,
-    memory: Array.isArray(candidate.memory) ? candidate.memory : storySchema.player.memory,
-  }
-}
-
-function normalizeFeedEntry(saved: unknown): FeedEntry | undefined {
-  if (!saved || typeof saved !== 'object') {
-    return undefined
-  }
-
-  const entry = saved as Partial<FeedEntry> & { id?: string; turn?: number; content?: Partial<NonNullable<FeedEntry['content']>> & { turn?: number } }
-  if (!entry.kind || !entry.text) {
-    return undefined
-  }
-
-  return {
-    id: entry.id ?? createId(entry.kind),
-    kind: entry.kind,
-    speaker: entry.speaker,
-    text: entry.text,
-    content: entry.content?.name && entry.content.nodeType ? { name: entry.content.name, nodeType: entry.content.nodeType } : undefined,
-    generatedText: entry.generatedText,
-    nodeId: entry.nodeId,
-    eventId: entry.eventId,
-    streaming: false,
-    consequenceBadges: entry.consequenceBadges,
-    retryAction: entry.retryAction,
-  }
-}
-
-function normalizeDebugEntry(saved: unknown): DebugEntry | undefined {
-  if (!saved || typeof saved !== 'object') {
-    return undefined
-  }
-
-  const entry = saved as Partial<DebugEntry> & { id?: string; turn?: number }
-  if (!entry.text) {
-    return undefined
-  }
-
-  return {
-    id: entry.id ?? createId('debug'),
-    label: entry.label,
-    text: entry.text,
-    streaming: false,
-  }
-}
-
-function normalizeCampaignState(saved: unknown): CampaignState {
-  if (!saved || typeof saved !== 'object') {
-    return initialState
-  }
-
-  const candidate = saved as Partial<CampaignState> & { turn?: number }
-  return {
-    ...initialState,
-    player: normalizePlayableCharacter(candidate.player),
-    storyNpcs: Array.isArray(candidate.storyNpcs) ? candidate.storyNpcs : initialState.storyNpcs,
-    currentNodeId: typeof candidate.currentNodeId === 'string' ? candidate.currentNodeId : initialState.currentNodeId,
-    currentEvent: candidate.currentEvent,
-    sceneOpened: typeof candidate.sceneOpened === 'boolean' ? candidate.sceneOpened : initialState.sceneOpened,
-    exploredNodeIds: Array.isArray(candidate.exploredNodeIds) ? candidate.exploredNodeIds : initialState.exploredNodeIds,
-    eventHistory: Array.isArray(candidate.eventHistory) ? candidate.eventHistory : initialState.eventHistory,
-    feed: Array.isArray(candidate.feed) ? candidate.feed.map(normalizeFeedEntry).filter((entry): entry is FeedEntry => Boolean(entry)) : initialState.feed,
-    debugFeed: Array.isArray(candidate.debugFeed) ? candidate.debugFeed.map(normalizeDebugEntry).filter((entry): entry is DebugEntry => Boolean(entry)) : initialState.debugFeed,
-    flags: candidate.flags && typeof candidate.flags === 'object' ? candidate.flags : initialState.flags,
-    canonicalFacts: candidate.canonicalFacts && typeof candidate.canonicalFacts === 'object' ? candidate.canonicalFacts : initialState.canonicalFacts,
-    outcome: candidate.outcome === 'won' || candidate.outcome === 'lost' || candidate.outcome === 'running' ? candidate.outcome : initialState.outcome,
-  }
-}
-
 function splitFeedLines(text: string) {
   return text
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+}
+
+function splitReadableParagraphs(line: string) {
+  if (line.length <= 420) {
+    return [line]
+  }
+
+  const sentences = line.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const paragraphs: string[] = []
+  let current = ''
+
+  for (const sentence of sentences) {
+    const next = current ? `${current} ${sentence}` : sentence
+
+    if (current && next.length > 360) {
+      paragraphs.push(current)
+      current = sentence
+    } else {
+      current = next
+    }
+  }
+
+  if (current) {
+    paragraphs.push(current)
+  }
+
+  return paragraphs.length > 0 ? paragraphs : [line]
+}
+
+function getFeedDisplayLines(entry: FeedEntry) {
+  const lines = splitFeedLines(entry.text)
+
+  if (entry.kind !== 'narration' && entry.kind !== 'dialogue') {
+    return lines
+  }
+
+  return lines.flatMap(splitReadableParagraphs)
 }
 
 function getFirstSentence(text: string) {
@@ -1311,14 +1257,6 @@ function getLlmPreset(id: LlmPresetId) {
   return llmModelPresets.find((preset) => preset.id === id) ?? llmModelPresets[0]
 }
 
-function isLlmPresetId(value: unknown): value is LlmPresetId {
-  return value === 'auto' || value === 'fast' || value === 'balanced' || value === 'quality' || value === 'custom'
-}
-
-function getNumberOption(value: unknown, fallback: number) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-}
-
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
@@ -1330,33 +1268,6 @@ function sanitizeLlmOptions(options: OllamaGenerationOptions): OllamaGenerationO
     repeat_penalty: clampNumber(options.repeat_penalty, 0.8, 1.5),
     num_ctx: Math.round(clampNumber(options.num_ctx, 2048, 8192)),
     num_predict: Math.round(clampNumber(options.num_predict, 120, 800)),
-  }
-}
-
-function normalizeLlmOptions(value: unknown, fallback: OllamaGenerationOptions) {
-  const partial = typeof value === 'object' && value !== null ? (value as Partial<OllamaGenerationOptions>) : {}
-
-  return sanitizeLlmOptions({
-    temperature: getNumberOption(partial.temperature, fallback.temperature),
-    top_p: getNumberOption(partial.top_p, fallback.top_p),
-    repeat_penalty: getNumberOption(partial.repeat_penalty, fallback.repeat_penalty),
-    num_ctx: getNumberOption(partial.num_ctx, fallback.num_ctx),
-    num_predict: getNumberOption(partial.num_predict, fallback.num_predict),
-  })
-}
-
-function normalizeLlmSettings(saved: unknown): LlmSettings {
-  const partial = typeof saved === 'object' && saved !== null ? (saved as Partial<LlmSettings>) : {}
-  const presetId = isLlmPresetId(partial.presetId) ? partial.presetId : defaultLlmSettings.presetId
-  const presetOptions = getLlmPreset(presetId).options
-  const endpoint = typeof partial.endpoint === 'string' && partial.endpoint.trim() ? partial.endpoint.trim() : defaultLlmSettings.endpoint
-  const model = typeof partial.model === 'string' && partial.model.trim() ? partial.model.trim() : defaultLlmSettings.model
-
-  return {
-    endpoint,
-    model,
-    presetId,
-    options: normalizeLlmOptions(partial.options, presetOptions),
   }
 }
 
@@ -1375,7 +1286,7 @@ function getBestInstalledModel(modelNames: string[], presetId: LlmPresetId) {
     return presetMatch
   }
 
-  const broadlyRecommended = ['qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b', 'qwen2.5:3b', 'phi3:mini']
+  const broadlyRecommended = ['qwen3.6:latest', 'qwen3.6', 'qwen2.5:7b', 'llama3.1:8b', 'llama3.2:3b', 'mistral:7b', 'gemma2:9b', 'qwen2.5:3b', 'phi3:mini']
   return broadlyRecommended.find((model) => installedModels.has(model)) ?? modelNames[0]
 }
 
@@ -1402,7 +1313,7 @@ async function assertLocalModelAvailable(settings: LlmSettings) {
   const modelNames = await fetchOllamaModelNames(settings.endpoint)
 
   if (modelNames.length === 0) {
-    throw new Error('Ollama is running, but no local models were found. Try: ollama pull qwen2.5:7b')
+    throw new Error('Ollama is running, but no local models were found. Try: ollama pull qwen3.6')
   }
 
   if (!modelNames.includes(settings.model)) {
@@ -1418,6 +1329,7 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
       model: settings.model,
       prompt,
       stream: true,
+      think: settings.think,
       options: getEffectiveLlmOptions(settings),
     }),
   })
@@ -1437,6 +1349,34 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
   const decoder = new TextDecoder()
   let buffer = ''
   let fullText = ''
+  let receivedThinkingOnlyOutput = false
+
+  const processLine = async (line: string) => {
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    let data: { response?: string; thinking?: string; done?: boolean }
+
+    try {
+      data = JSON.parse(trimmed) as { response?: string; thinking?: string; done?: boolean }
+    } catch {
+      throw new Error('The local model returned a malformed streaming response. Restart Ollama and try again.')
+    }
+
+    const chunk = data.response ?? ''
+
+    if (!chunk && data.thinking) {
+      receivedThinkingOnlyOutput = true
+    }
+
+    if (chunk) {
+      fullText += chunk
+      await onChunk(chunk)
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -1450,26 +1390,14 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
     buffer = lines.pop() ?? ''
 
     for (const line of lines) {
-      const trimmed = line.trim()
-
-      if (!trimmed) {
-        continue
-      }
-
-      let data: { response?: string; done?: boolean }
-
-      try {
-        data = JSON.parse(trimmed) as { response?: string; done?: boolean }
-      } catch {
-        throw new Error('The local model returned a malformed streaming response. Restart Ollama and try again.')
-      }
-      const chunk = data.response ?? ''
-
-      if (chunk) {
-        fullText += chunk
-        await onChunk(chunk)
-      }
+      await processLine(line)
     }
+  }
+
+  await processLine(buffer)
+
+  if (!fullText.trim() && receivedThinkingOnlyOutput) {
+    throw new Error('The model spent its generation budget on hidden thinking and returned no story text. Turn model thinking off, or increase Max generated tokens and try again.')
   }
 
   return fullText.trim()
@@ -2213,6 +2141,7 @@ ${formatCodexContext(state)}
 Write only visible story text. No JSON. No markdown heading.
 Rules:
 - Describe only externally available scene details: surroundings, NPC behavior, physical pressure, sensory facts, and immediate stakes.
+- Format the passage as two or three short paragraphs separated by blank lines; avoid one dense wall of text.
 - Make the situation concrete and leave room for the player to choose from the authored options.
 - Do not write dialogue for the player character.
 - Do not decide the player's action.
@@ -2265,6 +2194,7 @@ ${formatCodexContext(state)}
 Write visible prose only. No JSON. No markdown heading.
 Rules:
 - Resolve only the selected option.
+- Format the passage as two or three short paragraphs separated by blank lines; avoid one dense wall of text.
 - Do not add unselected motives, regrets, memories, emotions, thoughts, or private conclusions for the player character.
 - Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
 - If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
@@ -2311,6 +2241,7 @@ ${formatCodexContext(state)}
 Write only ${npc.name}'s visible response. No JSON. No markdown heading.
 Rules:
 - Use ${npc.name}'s actual name followed by a colon. Never write the literal label "Name:".
+- Keep this response readable: one short paragraph, or two short paragraphs if action and speech both matter.
 - React to the selected option and the NPC's own want.
 - Do not invent exact dialogue, private thoughts, motives, or additional actions for the player character.
 - If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
@@ -2450,16 +2381,16 @@ function FeedBlock({
 }) {
   if (entry.kind === 'location') {
     return (
-      <section className="mb-5 mt-6 border-t border-[var(--color-border)] pt-3 last:mb-0">
+      <section className="mb-4 mt-5 border-t border-[var(--color-border)] pt-3 first:mt-0 last:mb-0">
         <div className="flex flex-wrap items-baseline justify-between gap-2 text-[var(--color-text-muted)]">
           <p className="font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em]">{entry.content?.name ?? entry.text}</p>
-          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ?? 'place'}</p>
+          <p className="font-serif text-[0.68rem] italic tracking-wide text-[var(--color-text-dim)]">{entry.content?.nodeType ? getNodeTypeLabel(entry.content.nodeType) : 'Place'}</p>
         </div>
       </section>
     )
   }
 
-  const lines = splitFeedLines(entry.text).filter((line) => line.trim().length > 0)
+  const lines = getFeedDisplayLines(entry)
 
   if (lines.length === 0 && !entry.streaming) {
     return null
@@ -2475,7 +2406,7 @@ function FeedBlock({
         : ''
 
   return (
-    <section className="mb-7 w-full last:mb-0">
+    <section className="mb-8 w-full last:mb-0">
       {entry.kind === 'system' ? (
         <div className="mb-4 mt-6 flex items-center gap-3">
           <span className="h-px flex-1 bg-[var(--color-border)]" />
@@ -2493,14 +2424,14 @@ function FeedBlock({
               const shouldShowSpeaker = entry.kind === 'dialogue' && displayedSpeaker && displayedSpeaker !== 'Narrator'
 
               return shouldShowSpeaker ? (
-                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${styledLine.className}`}>
+                <p key={`${entry.id}-line-${index}`} className={`mb-4 whitespace-pre-wrap text-base leading-[1.85] last:mb-0 ${styledLine.className}`}>
                   <span className="mr-2 font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{displayedSpeaker}</span>
                   <span>
                     {renderCodexText(displayedText, references, { canonicalFacts })}
                   </span>
                 </p>
               ) : (
-                <p key={`${entry.id}-line-${index}`} className={`mb-2 whitespace-pre-wrap text-base leading-[1.7] last:mb-0 ${entry.kind === 'selected' ? 'text-sm text-muted-foreground' : ''} ${styledLine.className}`}>
+                <p key={`${entry.id}-line-${index}`} className={`mb-4 whitespace-pre-wrap text-base leading-[1.85] last:mb-0 ${entry.kind === 'selected' ? 'font-sans text-sm leading-6 text-muted-foreground' : ''} ${styledLine.className}`}>
                   <span>{renderCodexText(displayedText, references, { canonicalFacts })}</span>
                 </p>
               )
@@ -2995,27 +2926,6 @@ function MapLocationDetails({
   )
 }
 
-function ObjectiveStrip({ hint }: { hint?: string }) {
-  const trimmedHint = hint?.trim()
-  const shouldShowHint = Boolean(trimmedHint && trimmedHint !== storySchema.objective.summary)
-
-  return (
-    <Card className="iff-chrome-panel sticky top-4 z-10">
-      <CardContent className="p-4">
-        <p className="ui-label">Current Objective</p>
-        <h2 className="mt-1 font-[var(--font-display)] text-2xl font-light leading-tight">{storySchema.title}</h2>
-        <p className="mt-3 font-serif text-sm leading-6 text-foreground">{storySchema.objective.summary}</p>
-        {shouldShowHint ? (
-          <div className="mt-3 border-l border-[var(--color-border-strong)] pl-3">
-            <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Now</p>
-            <p className="mt-1 font-serif text-sm italic leading-6 text-muted-foreground">{trimmedHint}</p>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  )
-}
-
 function ChoicePanel({
   state,
   isAdvancing,
@@ -3060,6 +2970,8 @@ function ChoicePanel({
 
   const choices = getAvailableChoices(state)
   const currentEvent = state.currentEvent
+  const currentHint = getCurrentObjective(state)
+  const shouldShowCurrentHint = currentHint.trim() && currentHint !== storySchema.objective.summary
 
   return (
     <Card className="iff-chrome-panel">
@@ -3069,6 +2981,12 @@ function ChoicePanel({
       </CardHeader>
       <Separator />
       <CardContent className="flex flex-col gap-2">
+        {shouldShowCurrentHint ? (
+          <div className="mb-2 border-l border-[var(--color-border-strong)] bg-background py-2 pl-3">
+            <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Now</p>
+            <p className="mt-1 font-serif text-sm italic leading-6 text-muted-foreground">{currentHint}</p>
+          </div>
+        ) : null}
         {choices.length > 4 ? <p className="font-sans text-xs text-muted-foreground">({choices.length} options)</p> : null}
         {choices.map((choice) => {
           const disabledReason = getChoiceDisabledReason(state, choice)
@@ -3201,6 +3119,12 @@ function CharacterPanel({
             <p className="mt-1.5">{state.player.backstory.want}</p>
           </div>
 
+          <section className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+            <p className="ui-label">Current Objective</p>
+            <h4 className="mt-1 font-[var(--font-display)] text-2xl font-light leading-tight">{storySchema.title}</h4>
+            <p className="mt-3 font-serif text-sm leading-6 text-foreground">{storySchema.objective.summary}</p>
+          </section>
+
           <div>
             <h5 className="text-sm font-medium">Strengths</h5>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -3320,7 +3244,7 @@ function ProtagonistIntroScreen({ onBegin }: { onBegin: () => void }) {
   )
 }
 
-function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: () => void }) {
+function EndScreen({ state }: { state: CampaignState }) {
   if (state.outcome === 'running') return null
   const won = state.outcome === 'won'
   const choices = state.feed.filter((entry) => entry.kind === 'selected')
@@ -3343,7 +3267,7 @@ function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: 
               {choices.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No choices recorded yet.</p> : null}
             </div>
           </details>
-          <Button type="button" size="lg" onClick={onPlayAgain}>Play Again</Button>
+          <p className="font-serif text-sm leading-6 text-muted-foreground">Refresh the page to begin again.</p>
         </CardContent>
       </Card>
     </div>
@@ -3351,32 +3275,9 @@ function EndScreen({ state, onPlayAgain }: { state: CampaignState; onPlayAgain: 
 }
 
 function App() {
-  const [campaign, setCampaign] = useState<CampaignState>(() => {
-    try {
-      const saved = window.localStorage.getItem(campaignStorageKey)
-      return saved ? normalizeCampaignState(JSON.parse(saved)) : initialState
-    } catch {
-      return initialState
-    }
-  })
-  const [llmSettings, setLlmSettings] = useState<LlmSettings>(() => {
-    try {
-      const saved = window.localStorage.getItem(llmSettingsStorageKey)
-      return saved ? normalizeLlmSettings(JSON.parse(saved)) : defaultLlmSettings
-    } catch {
-      return defaultLlmSettings
-    }
-  })
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    try {
-      const saved = window.localStorage.getItem(themeStorageKey) as ThemeMode | null
-      if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
-    } catch {
-      // Ignore localStorage read failures.
-    }
-
-    return 'system'
-  })
+  const [campaign, setCampaign] = useState<CampaignState>(initialState)
+  const [llmSettings, setLlmSettings] = useState<LlmSettings>(defaultLlmSettings)
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system')
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(() => getSystemThemeMode())
   const [appPhase, setAppPhase] = useState<AppPhase>('story-select')
   const [isAdvancing, setIsAdvancing] = useState(false)
@@ -3395,12 +3296,11 @@ function App() {
   const [testConnectionMessage, setTestConnectionMessage] = useState<string>()
   const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
   const [newContentWaiting, setNewContentWaiting] = useState(false)
-  const [isScrollLocked, setIsScrollLocked] = useState(false)
   const [confirmingChoiceId, setConfirmingChoiceId] = useState<string>()
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
   const storyScrollRef = useRef<HTMLDivElement | null>(null)
+  const isScrollLockedRef = useRef(false)
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
-  const currentObjective = useMemo(() => getCurrentObjective(campaign), [campaign])
   const currentLlmPreset = useMemo(() => getLlmPreset(llmSettings.presetId), [llmSettings.presetId])
   const effectiveLlmOptions = useMemo(() => getEffectiveLlmOptions(llmSettings), [llmSettings])
   const resolvedThemeMode = themeMode === 'system' ? systemThemeMode : themeMode
@@ -3409,7 +3309,6 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedThemeMode
     document.documentElement.dataset.themePreference = themeMode
-    window.localStorage.setItem(themeStorageKey, themeMode)
   }, [resolvedThemeMode, themeMode])
 
   useEffect(() => {
@@ -3431,10 +3330,6 @@ function App() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(llmSettingsStorageKey, JSON.stringify(llmSettings))
-  }, [llmSettings])
-
-  useEffect(() => {
     let cancelled = false
 
     async function checkConnection() {
@@ -3445,7 +3340,7 @@ function App() {
           setAvailableModels(names)
           setOllamaStatus('connected')
           if (names.length === 0) {
-            setLlmSetupHint('Ollama is running, but no local models are installed. Try: ollama pull qwen2.5:7b')
+            setLlmSetupHint('Ollama is running, but no local models are installed. Try: ollama pull qwen3.6')
           } else if (!names.includes(llmSettings.model) && llmSettings.presetId !== 'custom') {
             const bestModel = getBestInstalledModel(names, llmSettings.presetId)
             const presetOptions = getLlmPreset(llmSettings.presetId).options
@@ -3473,14 +3368,8 @@ function App() {
     }
   }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId])
 
-  useEffect(() => {
-    if (campaign.feed.length > 1 && !isAdvancing) {
-      window.localStorage.setItem(campaignStorageKey, JSON.stringify(campaign))
-    }
-  }, [isAdvancing, campaign])
-
   const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
-    if (isScrollLocked) {
+    if (isScrollLockedRef.current) {
       setNewContentWaiting(true)
       return
     }
@@ -3495,15 +3384,15 @@ function App() {
     const scrollContainer = storyScrollRef.current
     if (!scrollContainer) return
     const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
-    const locked = distanceFromBottom > 48
-    setIsScrollLocked(locked)
+    const locked = distanceFromBottom > 80
+    isScrollLockedRef.current = locked
     if (!locked) {
       setNewContentWaiting(false)
     }
   }
 
   const resumeAutoScroll = () => {
-    setIsScrollLocked(false)
+    isScrollLockedRef.current = false
     setNewContentWaiting(false)
     requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
   }
@@ -3728,7 +3617,6 @@ function App() {
 
       const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
       appendDebugEntry({ label: 'Resolution prompt', text: resolutionPrompt })
-      appendFeedEntry({ ...createLocationFeedEntry(node), eventId: event.id })
       const resolutionEntryId = appendFeedEntry({ kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
       const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
       appendDirectionLintWarning(stateAtStart, resolutionText, 'Choice resolution')
@@ -3795,18 +3683,6 @@ function App() {
     } finally {
       setIsAdvancing(false)
     }
-  }
-
-  const resetCampaign = () => {
-    setLlmError(undefined)
-    setPendingRetry(undefined)
-    setSelectedNodeId(undefined)
-    setTravelAnimation(undefined)
-    setIsTravelAnimating(false)
-    setActiveMainTab('story')
-    setSelectedItemId(initialState.player.inventory[0]?.id)
-    setCampaign(initialState)
-    setAppPhase('protagonist-intro')
   }
 
   const applyLlmPreset = (presetId: LlmPresetId) => {
@@ -3883,8 +3759,6 @@ function App() {
               </div>
             </CardContent>
           </Card>
-
-          <ObjectiveStrip hint={currentObjective} />
         </aside>
 
         <section className="flex min-h-0 flex-col gap-4 lg:h-full lg:overflow-hidden">
@@ -3944,7 +3818,7 @@ function App() {
               <Card className="iff-chrome-panel ml-auto min-h-svh w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
                 <CardHeader>
                   <CardTitle>Options</CardTitle>
-                  <CardDescription className="font-serif">Manage the session. Technical details stay tucked away.</CardDescription>
+                  <CardDescription className="font-serif">Tune the local narrator and display. Refresh the page to start over.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex max-w-2xl flex-col gap-4">
                   <section className="border border-[var(--color-border)] bg-background p-4">
@@ -3975,7 +3849,7 @@ function App() {
                     {llmSetupHint ? <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{llmSetupHint}</p> : null}
                     {ollamaStatus === 'connected' && availableModels.length === 0 ? (
                       <div className="mt-3 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-mono text-xs text-foreground">
-                        ollama pull qwen2.5:7b<br />
+                        ollama pull qwen3.6<br />
                         <span className="text-muted-foreground"># lower-resource Llama option</span><br />
                         ollama pull llama3.2:3b
                       </div>
@@ -3984,85 +3858,93 @@ function App() {
 
                   <Separator />
 
-                  <Button type="button" variant="ghost" className="justify-between" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)}>
-                    Advanced local model settings
+                  <Button type="button" variant="ghost" className="justify-between border border-[var(--color-border)] bg-background px-4 py-3" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)}>
+                    Advanced settings
                     <span className="text-xs text-muted-foreground">{advancedOpen ? 'Hide' : 'Show'}</span>
                   </Button>
 
                   {advancedOpen ? (
-                    <section className="flex flex-col gap-3 border border-[var(--color-border)] bg-background p-4">
-                      <label className="flex flex-col gap-1.5 text-sm font-medium">
-                        Service endpoint
-                        <Input value={llmSettings.endpoint} onChange={(event) => setLlmSettings((settings) => ({ ...settings, endpoint: event.target.value }))} />
-                      </label>
-                      <label className="flex flex-col gap-1.5 text-sm font-medium">
-                        Runtime model
-                        {availableModels.length > 0 ? (
-                          <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))}>
-                            {availableModels.map((model) => <option key={model} value={model}>{model}</option>)}
-                          </select>
-                        ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))} />}
-                      </label>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                    <section className="flex flex-col gap-4 border border-[var(--color-border)] bg-background p-4">
+                      <section className="flex flex-col gap-3 border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                        <div>
+                          <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model settings</p>
+                          <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Override the local narrator endpoint, model, and generation controls when the preset defaults need tuning.</p>
+                        </div>
                         <label className="flex flex-col gap-1.5 text-sm font-medium">
-                          Temperature
-                          <Input type="number" min="0" max="1.5" step="0.01" value={effectiveLlmOptions.temperature} onChange={(event) => updateLlmOption('temperature', event.target.value)} />
+                          Service endpoint
+                          <Input value={llmSettings.endpoint} onChange={(event) => setLlmSettings((settings) => ({ ...settings, endpoint: event.target.value }))} />
                         </label>
                         <label className="flex flex-col gap-1.5 text-sm font-medium">
-                          Top-p
-                          <Input type="number" min="0.1" max="1" step="0.01" value={effectiveLlmOptions.top_p} onChange={(event) => updateLlmOption('top_p', event.target.value)} />
+                          Runtime model
+                          {availableModels.length > 0 ? (
+                            <select className="border border-[var(--color-border)] bg-background px-3 py-2 font-serif" value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))}>
+                              {availableModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                            </select>
+                          ) : <Input value={llmSettings.model} onChange={(event) => setLlmSettings((settings) => ({ ...settings, presetId: 'custom', model: event.target.value }))} />}
                         </label>
-                        <label className="flex flex-col gap-1.5 text-sm font-medium">
-                          Repeat penalty
-                          <Input type="number" min="0.8" max="1.5" step="0.01" value={effectiveLlmOptions.repeat_penalty} onChange={(event) => updateLlmOption('repeat_penalty', event.target.value)} />
-                        </label>
-                        <label className="flex flex-col gap-1.5 text-sm font-medium">
-                          Context size
-                          <Input type="number" min="2048" max="8192" step="256" value={effectiveLlmOptions.num_ctx} onChange={(event) => updateLlmOption('num_ctx', event.target.value)} />
-                        </label>
-                        <label className="flex flex-col gap-1.5 text-sm font-medium">
-                          Max generated tokens
-                          <Input type="number" min="120" max="800" step="20" value={effectiveLlmOptions.num_predict} onChange={(event) => updateLlmOption('num_predict', event.target.value)} />
-                        </label>
-                      </div>
-                      <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
-                        <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
-                        {sidebarOllamaStatus}
-                      </div>
-                      {llmSetupHint ? <p className="font-serif text-sm text-muted-foreground">{llmSetupHint}</p> : null}
-                      <Button type="button" variant="outline" onClick={async () => {
-                        try {
-                          await assertLocalModelAvailable(llmSettings)
-                          setTestConnectionMessage('✓ Model ready')
-                        } catch (error) {
-                          setTestConnectionMessage(`✗ Could not connect: ${error instanceof Error ? error.message : 'Unknown error'}`)
-                        }
-                      }}>Test Connection</Button>
-                      {testConnectionMessage ? <p className="font-serif text-sm text-muted-foreground">{testConnectionMessage}</p> : null}
-                      {llmError ? (
-                        <Alert variant="destructive">
-                          <AlertCircleIcon />
-                          <AlertTitle>Diagnostic message</AlertTitle>
-                          <AlertDescription className="font-serif">{llmError}</AlertDescription>
-                        </Alert>
-                      ) : null}
-                      <Button type="button" variant={debugMode ? 'secondary' : 'outline'} onClick={() => setDebugMode((value) => !value)}>
-                        <EyeIcon data-icon="inline-start" />
-                        {debugMode ? 'Hide diagnostics' : 'Show diagnostics'}
-                      </Button>
+                        <div className="border border-[var(--color-border)] bg-background p-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-sm font-medium">Model thinking</p>
+                              <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">Optional for reasoning models. It can improve planning, but delays visible story text and may consume the token budget before narration starts.</p>
+                            </div>
+                            <Button type="button" variant={llmSettings.think ? 'secondary' : 'outline'} className="shrink-0" onClick={() => setLlmSettings((settings) => ({ ...settings, think: !settings.think }))}>
+                              {llmSettings.think ? 'Thinking on' : 'Thinking off'}
+                            </Button>
+                          </div>
+                          {llmSettings.think ? <p className="mt-2 font-sans text-xs text-muted-foreground">If narration comes back blank, turn this off or raise Max generated tokens.</p> : null}
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1.5 text-sm font-medium">
+                            Temperature
+                            <Input type="number" min="0" max="1.5" step="0.01" value={effectiveLlmOptions.temperature} onChange={(event) => updateLlmOption('temperature', event.target.value)} />
+                          </label>
+                          <label className="flex flex-col gap-1.5 text-sm font-medium">
+                            Top-p
+                            <Input type="number" min="0.1" max="1" step="0.01" value={effectiveLlmOptions.top_p} onChange={(event) => updateLlmOption('top_p', event.target.value)} />
+                          </label>
+                          <label className="flex flex-col gap-1.5 text-sm font-medium">
+                            Repeat penalty
+                            <Input type="number" min="0.8" max="1.5" step="0.01" value={effectiveLlmOptions.repeat_penalty} onChange={(event) => updateLlmOption('repeat_penalty', event.target.value)} />
+                          </label>
+                          <label className="flex flex-col gap-1.5 text-sm font-medium">
+                            Context size
+                            <Input type="number" min="2048" max="8192" step="256" value={effectiveLlmOptions.num_ctx} onChange={(event) => updateLlmOption('num_ctx', event.target.value)} />
+                          </label>
+                          <label className="flex flex-col gap-1.5 text-sm font-medium">
+                            Max generated tokens
+                            <Input type="number" min="120" max="800" step="20" value={effectiveLlmOptions.num_predict} onChange={(event) => updateLlmOption('num_predict', event.target.value)} />
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-2 font-sans text-xs text-muted-foreground">
+                          <span className={`size-2 rounded-full ${ollamaStatus === 'connected' ? 'bg-foreground' : ollamaStatus === 'checking' ? 'bg-muted-foreground' : 'bg-destructive'}`} />
+                          {sidebarOllamaStatus}
+                        </div>
+                        {llmSetupHint ? <p className="font-serif text-sm text-muted-foreground">{llmSetupHint}</p> : null}
+                        <Button type="button" variant="outline" onClick={async () => {
+                          try {
+                            await assertLocalModelAvailable(llmSettings)
+                            setTestConnectionMessage('✓ Model ready')
+                          } catch (error) {
+                            setTestConnectionMessage(`✗ Could not connect: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                          }
+                        }}>Test Connection</Button>
+                        {testConnectionMessage ? <p className="font-serif text-sm text-muted-foreground">{testConnectionMessage}</p> : null}
+                        {llmError ? (
+                          <Alert variant="destructive">
+                            <AlertCircleIcon />
+                            <AlertTitle>Diagnostic message</AlertTitle>
+                            <AlertDescription className="font-serif">{llmError}</AlertDescription>
+                          </Alert>
+                        ) : null}
+                        <Button type="button" variant={debugMode ? 'secondary' : 'outline'} onClick={() => setDebugMode((value) => !value)}>
+                          <EyeIcon data-icon="inline-start" />
+                          {debugMode ? 'Hide diagnostics' : 'Show diagnostics'}
+                        </Button>
+                      </section>
+
                     </section>
                   ) : null}
-
-                  <Separator />
-
-                  <section className="border border-[var(--color-border)] bg-background p-4">
-                    <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
-                    <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">Restart the adventure from the beginning whenever you want a clean road.</p>
-                    <Button type="button" variant="outline" className="mt-3" onClick={resetCampaign} disabled={isStoryLocked}>
-                      <RotateCcwIcon data-icon="inline-start" />
-                      Reset story
-                    </Button>
-                  </section>
                 </CardContent>
               </Card>
 
@@ -4071,7 +3953,7 @@ function App() {
           </div>
         ) : null}
 
-        <EndScreen state={campaign} onPlayAgain={resetCampaign} />
+        <EndScreen state={campaign} />
       </div>
     </main>
     </TooltipProvider>
