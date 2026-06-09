@@ -13,7 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { defaultStory } from '@/stories'
-import type { CodexReference, InventoryItem, PlayableCharacter, StoryChoice, StoryChoiceMode, StoryEffect, StoryEvent, StoryExit, StoryIconId, StoryNode, StoryNodeType, StoryNpc, StoryNpcTemplate } from '@/framework/schema'
+import type { CodexReference, InventoryItem, PlayableCharacter, StoryChoice, StoryChoiceMode, StoryEffect, StoryEvent, StoryExit, StoryNode, StoryNodeType, StoryNpc, StoryNpcTemplate } from '@/framework/schema'
 
 type FeedEntry = {
   id: string
@@ -1458,15 +1458,6 @@ Rules:
 - Do not declare death or defeat unless the visible story clearly establishes it.`
 }
 
-function StoryIcon({ id, label, className = '' }: { id: StoryIconId; label: string; className?: string }) {
-  return (
-    <span className={`inline-flex size-8 shrink-0 items-center justify-center border border-[var(--color-border)] bg-foreground ${className}`} aria-hidden="true">
-      <img src={storyIconAssets[id]} alt="" className="size-4 object-contain invert" />
-      <span className="sr-only">{label}</span>
-    </span>
-  )
-}
-
 function getVisualNovelLineStyle(line: string) {
   const markerMatch = line.match(/^\[(weak|small|whisper)\]\s*/i)
   const marker = markerMatch?.[1]?.toLowerCase()
@@ -2267,31 +2258,45 @@ function InventoryItemCard({
   selected: boolean
   onSelect: (itemId: string) => void
 }) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
+  const trigger = (
+    <button
+      type="button"
       aria-pressed={selected}
       onClick={() => onSelect(item.id)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelect(item.id)
-        }
-      }}
-      className="group flex w-full flex-col gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:bg-muted sm:flex-row sm:items-start"
+      className="group flex w-full items-start gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:border-foreground aria-pressed:bg-muted sm:aspect-square sm:items-stretch sm:justify-stretch sm:gap-0 sm:p-0"
     >
-      <StoryIcon id={item.iconAssetId ?? 'codex'} label={item.name} className="size-11 shrink-0 self-start" />
-      <span className="block min-w-0 flex-1">
-        <span className="block break-words text-base font-semibold leading-5 text-foreground sm:truncate">{item.name}</span>
-        <span className="mt-1 block break-words font-serif text-sm leading-6 text-muted-foreground sm:truncate">{item.description}</span>
+      <span className="flex size-14 shrink-0 items-center justify-center border border-[var(--color-border)] bg-foreground sm:size-full sm:border-0" aria-hidden="true">
+        <img src={storyIconAssets[item.iconAssetId ?? 'codex']} alt="" className="size-full object-cover invert" />
+      </span>
+      <span className="sr-only">{item.name}</span>
+      <span className="block min-w-0 flex-1 sm:sr-only">
+        <span className="block break-words text-base font-semibold leading-5 text-foreground">{item.name}</span>
+        <span className="mt-1 block break-words font-serif text-sm leading-6 text-muted-foreground">{item.description}</span>
         {item.consumable ? (
-          <span className="mt-2 flex flex-wrap gap-1.5">
-            <span className="inline-flex border border-[var(--color-border-strong)] px-1.5 py-0.5 font-sans text-[0.6rem] font-semibold uppercase tracking-wider text-muted-foreground">Consumable</span>
-          </span>
+          <span className="mt-2 inline-flex border border-[var(--color-border-strong)] px-1.5 py-0.5 font-sans text-[0.6rem] font-semibold uppercase tracking-wider text-muted-foreground">Consumable</span>
         ) : null}
       </span>
-    </div>
+    </button>
+  )
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent className="max-w-72 border border-[var(--color-border)] bg-background p-3 text-foreground">
+        <p className="font-sans text-sm font-semibold">{item.name}</p>
+        <p className="mt-1 font-serif text-sm leading-5 text-muted-foreground">{item.description}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {item.tags?.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
+          {item.consumable ? <Badge variant="secondary">Consumable</Badge> : null}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function EmptyInventorySlot() {
+  return (
+    <div className="hidden aspect-square border border-dashed border-[var(--color-border)] bg-background/50 sm:block" aria-hidden="true" />
   )
 }
 
@@ -2306,6 +2311,7 @@ function CharacterPanel({
 }) {
   const visibleInventory = state.player.inventory.filter((item) => item.visible)
   const selectedItem = visibleInventory.find((item) => item.id === selectedItemId) ?? visibleInventory[0]
+  const emptyInventorySlotCount = Math.max(12 - visibleInventory.length, 0)
 
   return (
     <Card className="iff-chrome-panel min-h-0 flex-1 lg:h-full">
@@ -2372,10 +2378,11 @@ function CharacterPanel({
             </div>
             {visibleInventory.length > 0 ? (
               <ScrollArea className="mt-3 h-auto max-h-none border border-[var(--color-border)] bg-[var(--color-surface)] sm:h-72">
-                <div className="flex flex-col gap-2 p-2 pr-3">
+                <div className="grid grid-cols-1 gap-2 p-2 pr-3 sm:grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
                 {visibleInventory.map((item) => (
                   <InventoryItemCard key={item.id} item={item} selected={selectedItem?.id === item.id} onSelect={onSelectItem} />
                 ))}
+                {Array.from({ length: emptyInventorySlotCount }, (_, index) => <EmptyInventorySlot key={`empty-slot-${index}`} />)}
                 </div>
               </ScrollArea>
             ) : (
@@ -3017,12 +3024,12 @@ function App() {
                   <span className={`size-2 shrink-0 rounded-full ${ollamaStatus === 'connected' ? 'bg-emerald-500' : ollamaStatus === 'checking' ? 'bg-amber-400' : 'bg-red-500'}`} />
                   <span className="truncate whitespace-nowrap">{sidebarOllamaStatus}</span>
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Button type="button" variant="outline" size="sm" className="w-full whitespace-nowrap sm:flex-1" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-nowrap" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
                     {resolvedThemeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
                     {resolvedThemeMode === 'dark' ? 'Light' : 'Dark'}
                   </Button>
-                  <Button type="button" variant="outline" size="sm" className="w-full whitespace-nowrap sm:flex-1" onClick={() => setSettingsOpen(true)}>
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-nowrap" onClick={() => setSettingsOpen(true)}>
                     <SettingsIcon data-icon="inline-start" />
                     Settings
                   </Button>
