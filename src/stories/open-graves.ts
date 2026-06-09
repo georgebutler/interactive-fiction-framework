@@ -15,6 +15,14 @@ const storyIconAssets: Record<StoryIconId, string> = {
   codex: '/icons/open-book.svg',
   keep: '/icons/delapouite-castle.svg',
   forest: '/icons/forest.svg',
+  fieldSpade: '/icons/trench-spade.svg',
+  blessedWater: '/icons/holy-water.svg',
+  ironNails: '/icons/nails.svg',
+  royalWrit: '/icons/scroll-quill.svg',
+  armoryKnife: '/icons/plain-dagger.svg',
+  crackedSpearHead: '/icons/barbed-spear.svg',
+  bellClapper: '/icons/ringing-bell.svg',
+  boneCharm: '/icons/charm.svg',
 }
 
 // Public domain / CC0 image from The Metropolitan Museum of Art Open Access:
@@ -49,7 +57,7 @@ const fieldSpade: InventoryItem = {
   name: 'Field Spade',
   description: 'A plain iron-edged spade with a worn haft, useful for testing ground, levering boards, and keeping distance from things that should stay buried.',
   tags: ['tool'],
-  iconAssetId: 'road',
+  iconAssetId: 'fieldSpade',
   consumable: false,
   visible: true,
 }
@@ -59,7 +67,7 @@ const blessedWater: InventoryItem = {
   name: 'Blessed Water',
   description: 'A small stoppered flask blessed by a village priest. Local rumor says it can make the restless dead flinch and slow.',
   tags: ['church', 'water'],
-  iconAssetId: 'lantern',
+  iconAssetId: 'blessedWater',
   consumable: true,
   visible: true,
 }
@@ -69,7 +77,7 @@ const ironNails: InventoryItem = {
   name: 'Iron Nails',
   description: 'A palmful of coffin nails. Good iron, bent and old, useful for holding a door when hands press from the other side.',
   tags: ['iron', 'tool'],
-  iconAssetId: 'keep',
+  iconAssetId: 'ironNails',
   consumable: true,
   visible: true,
 }
@@ -79,7 +87,7 @@ const royalWrit: InventoryItem = {
   name: 'Sealed Writ',
   description: 'King Osric’s command, stamped in red wax. It opens gates and closes excuses.',
   tags: ['proof', 'authority'],
-  iconAssetId: 'codex',
+  iconAssetId: 'royalWrit',
   consumable: false,
   visible: true,
 }
@@ -89,7 +97,7 @@ const betterKnife: InventoryItem = {
   name: 'Armory Knife',
   description: 'A narrow knife with honest balance. Not heroic, but useful when knots, straps, or hands must be cut free.',
   tags: ['iron', 'tool'],
-  iconAssetId: 'lantern',
+  iconAssetId: 'armoryKnife',
   consumable: true,
   visible: true,
 }
@@ -99,7 +107,7 @@ const crackedSpearHead: InventoryItem = {
   name: 'Cracked Spearhead',
   description: 'Salvaged from a weapon too poor to carry whole. It is still iron, and iron still has opinions about the dead.',
   tags: ['iron', 'salvage'],
-  iconAssetId: 'keep',
+  iconAssetId: 'crackedSpearHead',
   consumable: true,
   visible: true,
 }
@@ -109,7 +117,7 @@ const bellClapper: InventoryItem = {
   name: 'Silver Bell Clapper',
   description: 'The missing tongue of an old burial bell, dark with age and bright where road grit has been rubbed away.',
   tags: ['church', 'silver'],
-  iconAssetId: 'codex',
+  iconAssetId: 'bellClapper',
   consumable: false,
   visible: true,
 }
@@ -119,7 +127,7 @@ const boneCharm: InventoryItem = {
   name: 'Bone Token',
   description: 'A fingerbone wrapped in silver wire. It is ugly enough for proof, whatever tale the court chooses to tell about it.',
   tags: ['proof', 'bone'],
-  iconAssetId: 'forest',
+  iconAssetId: 'boneCharm',
   consumable: false,
   visible: true,
 }
