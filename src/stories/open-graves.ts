@@ -9,12 +9,12 @@ const codexTermSummaries: Record<string, string> = {
 }
 
 const storyIconAssets: Record<StoryIconId, string> = {
-  lantern: '/icons/ffffff/transparent/1x1/delapouite/old-lantern.svg',
-  road: '/icons/ffffff/transparent/1x1/delapouite/horizon-road.svg',
-  crossroads: '/icons/ffffff/transparent/1x1/delapouite/crossroad.svg',
-  codex: '/icons/ffffff/transparent/1x1/lorc/open-book.svg',
-  keep: '/icons/ffffff/transparent/1x1/delapouite/castle.svg',
-  forest: '/icons/ffffff/transparent/1x1/delapouite/forest.svg',
+  lantern: '/icons/old-lantern.svg',
+  road: '/icons/horizon-road.svg',
+  crossroads: '/icons/crossroad.svg',
+  codex: '/icons/open-book.svg',
+  keep: '/icons/delapouite-castle.svg',
+  forest: '/icons/forest.svg',
 }
 
 // Public domain / CC0 image from The Metropolitan Museum of Art Open Access:

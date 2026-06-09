@@ -2258,6 +2258,7 @@ function InventoryItemCard({
   selected: boolean
   onSelect: (itemId: string) => void
 }) {
+  const iconUrl = storyIconAssets[item.iconAssetId ?? 'codex']
   const trigger = (
     <button
       type="button"
@@ -2265,8 +2266,20 @@ function InventoryItemCard({
       onClick={() => onSelect(item.id)}
       className="group flex w-full items-start gap-3 border border-[var(--color-border)] bg-background p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground aria-pressed:border-foreground aria-pressed:bg-muted sm:aspect-square sm:items-stretch sm:justify-stretch sm:gap-0 sm:p-0"
     >
-      <span className="flex size-14 shrink-0 items-center justify-center border border-[var(--color-border)] bg-foreground sm:size-full sm:border-0" aria-hidden="true">
-        <img src={storyIconAssets[item.iconAssetId ?? 'codex']} alt="" className="size-full object-cover invert" />
+      <span className="flex size-14 shrink-0 items-center justify-center overflow-hidden border border-[var(--color-border)] bg-[radial-gradient(circle_at_30%_20%,var(--color-surface-raised),var(--color-surface)_58%,var(--color-base))] p-2 sm:size-full sm:border-0 sm:p-3" aria-hidden="true">
+        <span
+          className="block size-full bg-[linear-gradient(135deg,var(--color-text)_0%,var(--color-accent)_48%,var(--color-text-muted)_100%)] transition-transform group-hover:scale-105"
+          style={{
+            WebkitMaskImage: `url(${iconUrl})`,
+            maskImage: `url(${iconUrl})`,
+            WebkitMaskRepeat: 'no-repeat',
+            maskRepeat: 'no-repeat',
+            WebkitMaskPosition: 'center',
+            maskPosition: 'center',
+            WebkitMaskSize: 'contain',
+            maskSize: 'contain',
+          }}
+        />
       </span>
       <span className="sr-only">{item.name}</span>
       <span className="block min-w-0 flex-1 sm:sr-only">
@@ -2285,10 +2298,7 @@ function InventoryItemCard({
       <TooltipContent className="max-w-72 border border-[var(--color-border)] bg-background p-3 text-foreground">
         <p className="font-sans text-sm font-semibold">{item.name}</p>
         <p className="mt-1 font-serif text-sm leading-5 text-muted-foreground">{item.description}</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {item.tags?.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
-          {item.consumable ? <Badge variant="secondary">Consumable</Badge> : null}
-        </div>
+        {item.consumable ? <Badge className="mt-2" variant="secondary">Consumable</Badge> : null}
       </TooltipContent>
     </Tooltip>
   )
@@ -2312,6 +2322,7 @@ function CharacterPanel({
   const visibleInventory = state.player.inventory.filter((item) => item.visible)
   const selectedItem = visibleInventory.find((item) => item.id === selectedItemId) ?? visibleInventory[0]
   const emptyInventorySlotCount = Math.max(12 - visibleInventory.length, 0)
+  const currentObjective = getCurrentObjective(state)
 
   return (
     <Card className="iff-chrome-panel min-h-0 flex-1 lg:h-full">
@@ -2328,10 +2339,6 @@ function CharacterPanel({
             <div className="min-w-0">
               <h4 className="text-xl font-semibold">{state.player.name}</h4>
               <p className="text-sm text-muted-foreground">{state.player.role}</p>
-              <div className="mt-3 border-l border-[var(--color-border)] pl-3">
-                <p className="ui-label">Current Objective</p>
-                <p className="mt-1 font-serif text-sm leading-6 text-muted-foreground">{storySchema.objective.summary}</p>
-              </div>
             </div>
           </div>
 
@@ -2339,6 +2346,11 @@ function CharacterPanel({
             <p>{state.player.backstory.origin}</p>
             <p className="mt-1.5">{state.player.backstory.wound}</p>
             <p className="mt-1.5">{state.player.backstory.want}</p>
+          </div>
+
+          <div>
+            <h5 className="text-sm font-medium">Current Objective</h5>
+            <p className="mt-2 font-serif text-sm leading-6 text-muted-foreground">{currentObjective}</p>
           </div>
 
           <div>
