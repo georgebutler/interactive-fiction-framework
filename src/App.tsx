@@ -2983,8 +2983,7 @@ function ChoicePanel({
       <CardContent className="flex flex-col gap-2">
         {shouldShowCurrentHint ? (
           <div className="mb-2 border-l border-[var(--color-border-strong)] bg-background py-2 pl-3">
-            <p className="font-sans text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Now</p>
-            <p className="mt-1 font-serif text-sm italic leading-6 text-muted-foreground">{currentHint}</p>
+            <p className="font-serif text-sm italic leading-6 text-muted-foreground">{currentHint}</p>
           </div>
         ) : null}
         {choices.length > 4 ? <p className="font-sans text-xs text-muted-foreground">({choices.length} options)</p> : null}
@@ -2996,7 +2995,6 @@ function ChoicePanel({
           const disabledId = `${choice.id}-disabled-reason`
           const describedBy = disabledReason ? disabledId : undefined
           const modeColor = getStoryChoiceModeColor(choice.mode)
-          const primarySkill = choice.skillTags[0]
           const isAction = choice.displayStyle === 'action'
           const isDialogue = choice.displayStyle === 'dialogue'
           const isPassive = choice.displayStyle === 'passive'
@@ -3009,21 +3007,20 @@ function ChoicePanel({
                   <StoryChoiceModeIcon mode={choice.mode} />
                   {getStoryChoiceModeBadge(choice.mode)}
                 </span>
-                <span className={`mb-1 flex items-start justify-between gap-3 leading-snug ${isAction ? 'text-sm font-bold text-[var(--color-text)]' : ''} ${isDialogue ? 'text-sm italic text-[var(--color-text)]' : ''} ${isPassive ? 'text-xs text-[var(--color-text-muted)]' : ''}`}>
+                <span className={`mb-1 block leading-snug ${isAction ? 'text-sm font-bold text-[var(--color-text)]' : ''} ${isDialogue ? 'text-sm italic text-[var(--color-text)]' : ''} ${isPassive ? 'text-xs text-[var(--color-text-muted)]' : ''}`}>
                   <span>
-                    {isDialogue ? <span className="mr-1 font-sans not-italic text-[0.65rem] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">[SAY]</span> : null}
                     {isDialogue ? <span aria-hidden="true">“</span> : null}
                     {confirming ? `Confirm: ${choice.label}` : choice.label}
                   </span>
-                  {isAction && primarySkill ? (
-                    <span className="shrink-0 rounded-full border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[9px] font-normal uppercase tracking-widest text-[var(--color-text-muted)]">
-                      {skillTagDefinitions[primarySkill].label}
-                    </span>
-                  ) : null}
                 </span>
-                {!isAction && !isPassive && choice.skillTags.length > 0 ? (
-                  <span className="flex flex-wrap gap-1.5">
-                    {choice.skillTags.map((skill) => <span key={skill} className="border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">{skillTagDefinitions[skill].label}</span>)}
+                {!isPassive && choice.skillTags.length > 0 ? (
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    {choice.skillTags.map((skill) => (
+                      <span key={skill} className="inline-flex items-center gap-1.5 border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
+                        <span className="opacity-60">Skill:</span>
+                        <span>{skillTagDefinitions[skill].label}</span>
+                      </span>
+                    ))}
                   </span>
                 ) : null}
                 {disabledReason ? <span id={disabledId} className="mt-2 block text-xs font-medium text-[var(--color-text-muted)]">{disabledReason}</span> : null}
@@ -3295,11 +3292,8 @@ function App() {
   const [llmSetupHint, setLlmSetupHint] = useState<string>()
   const [testConnectionMessage, setTestConnectionMessage] = useState<string>()
   const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
-  const [newContentWaiting, setNewContentWaiting] = useState(false)
   const [confirmingChoiceId, setConfirmingChoiceId] = useState<string>()
-  const scrollAnchorRef = useRef<HTMLDivElement | null>(null)
   const storyScrollRef = useRef<HTMLDivElement | null>(null)
-  const isScrollLockedRef = useRef(false)
   const currentNode = useMemo(() => getNode(campaign.currentNodeId), [campaign.currentNodeId])
   const currentLlmPreset = useMemo(() => getLlmPreset(llmSettings.presetId), [llmSettings.presetId])
   const effectiveLlmOptions = useMemo(() => getEffectiveLlmOptions(llmSettings), [llmSettings])
@@ -3369,32 +3363,17 @@ function App() {
   }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId])
 
   const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
-    if (isScrollLockedRef.current) {
-      setNewContentWaiting(true)
-      return
-    }
-
     requestAnimationFrame(() => {
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      scrollAnchorRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : behavior, block: 'end' })
+      requestAnimationFrame(() => {
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        const resolvedBehavior = prefersReducedMotion ? 'auto' : behavior
+        const innerScrollContainer = storyScrollRef.current
+        const outerScrollContainer = document.scrollingElement ?? document.documentElement
+
+        innerScrollContainer?.scrollTo({ top: innerScrollContainer.scrollHeight, behavior: resolvedBehavior })
+        outerScrollContainer.scrollTo({ top: outerScrollContainer.scrollHeight, behavior: resolvedBehavior })
+      })
     })
-  }
-
-  const handleStoryScroll = () => {
-    const scrollContainer = storyScrollRef.current
-    if (!scrollContainer) return
-    const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
-    const locked = distanceFromBottom > 80
-    isScrollLockedRef.current = locked
-    if (!locked) {
-      setNewContentWaiting(false)
-    }
-  }
-
-  const resumeAutoScroll = () => {
-    isScrollLockedRef.current = false
-    setNewContentWaiting(false)
-    requestAnimationFrame(() => scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }))
   }
 
   const appendFeedEntry = (entry: Omit<FeedEntry, 'id'>) => {
@@ -3787,14 +3766,10 @@ function App() {
                       </div>
                     </CardHeader>
                     <CardContent className="min-h-0 flex-1 p-0">
-                      <ScrollArea viewportRef={storyScrollRef} onViewportScroll={handleStoryScroll} className="relative h-[min(58svh,620px)] min-h-0 lg:h-full">
+                      <ScrollArea viewportRef={storyScrollRef} className="relative h-[min(58svh,620px)] min-h-0 lg:h-full">
                         <div className="p-4 lg:p-6">
                           <StoryTranscript state={campaign} onRetry={pendingRetry} />
-                          <div ref={scrollAnchorRef} />
                         </div>
-                        {newContentWaiting ? (
-                          <Button type="button" size="sm" className="sticky bottom-4 left-1/2 -translate-x-1/2" onClick={resumeAutoScroll}>↓ New content</Button>
-                        ) : null}
                       </ScrollArea>
                     </CardContent>
                   </Card>
