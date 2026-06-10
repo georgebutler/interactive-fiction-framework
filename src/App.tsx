@@ -710,7 +710,7 @@ function getTravelDisabledReason(state: CampaignState, nodeId: string) {
   }
 
   if (nodeId === state.currentNodeId) {
-    return `${state.player.name} is already here.`
+    return `${getPlayerShortName(state.player)} is already here.`
   }
 
   const unfinishedBusinessReason = getUnfinishedBusinessReason(state)
@@ -946,8 +946,16 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function getPlayerFullName(player: PlayableCharacter) {
+  return `${player.firstName} ${player.lastName}`
+}
+
+function getPlayerShortName(player: PlayableCharacter) {
+  return player.firstName
+}
+
 function getPlayerCodexSummary(player: PlayableCharacter) {
-  return `${player.name} is ${player.role.toLowerCase()}, ${player.backstory.origin.charAt(0).toLowerCase()}${player.backstory.origin.slice(1)} ${player.backstory.want}`
+  return `${getPlayerFullName(player)} is ${player.role.toLowerCase()}, ${player.backstory.origin.charAt(0).toLowerCase()}${player.backstory.origin.slice(1)} ${player.backstory.want}`
 }
 
 function getNpcCodexSummary(person: StoryNpcTemplate) {
@@ -992,7 +1000,13 @@ function getCodexReferenceSummary(reference: CodexReference, facts?: CampaignSta
   }
 
   if (reference.type === 'person') {
-    const matchingPlayer = storySchema.players.find((player) => reference.targetId === player.id || reference.term.toLowerCase() === player.name.toLowerCase())
+    const referenceTerm = reference.term.toLowerCase()
+    const matchingPlayer = storySchema.players.find((player) => (
+      reference.targetId === player.id
+      || referenceTerm === getPlayerFullName(player).toLowerCase()
+      || referenceTerm === player.firstName.toLowerCase()
+      || referenceTerm === player.lastName.toLowerCase()
+    ))
 
     if (matchingPlayer) {
       return getPlayerCodexSummary(matchingPlayer)
@@ -1024,7 +1038,7 @@ function getCodexReferences(state: CampaignState) {
     addReference({ term: node.publicName, type: 'place', targetId: node.id })
     addReference({ term: node.name, type: 'place', targetId: node.id })
   })
-  addReference({ term: state.player.name, type: 'person', targetId: state.player.id })
+  addReference({ term: getPlayerFullName(state.player), type: 'person', targetId: state.player.id })
   state.player.inventory.filter((item) => item.visible).forEach((item) => addReference({ term: item.name, type: 'item', targetId: item.id }))
   state.storyNpcs.forEach((npc) => addReference({ term: npc.name, type: 'person', targetId: npc.id }))
   storySchema.codexTerms.forEach((term) => {
@@ -1044,7 +1058,9 @@ function getCodexReferences(state: CampaignState) {
 }
 
 function formatPlayerSheet(player: PlayableCharacter) {
-  return `Name: ${player.name}
+  return `Name: ${getPlayerFullName(player)}
+First name: ${player.firstName}
+Last name: ${player.lastName}
 Role: ${player.role}
 Current condition: ${player.condition}
 Visible inventory: ${player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
@@ -1438,7 +1454,7 @@ Rules:
 function buildPlayerConditionUpdatePrompt(state: CampaignState, choice: StoryChoice, resolutionText: string, npcText?: string) {
   return `You maintain the player character's visible condition as prose, not numbers.
 
-Player: ${state.player.name}
+Player: ${getPlayerFullName(state.player)}
 Previous condition: ${state.player.condition}
 
 Selected choice:
@@ -1450,7 +1466,7 @@ ${resolutionText}
 NPC response:
 ${npcText || 'None.'}
 
-Write one concise player-facing condition sentence for ${state.player.name}.
+Write one concise player-facing condition sentence for ${getPlayerFullName(state.player)}.
 Rules:
 - Output only the condition sentence.
 - No HP, health points, hit points, bars, levels, percentages, or numeric status.
@@ -2185,7 +2201,7 @@ function ChoicePanel({
   return (
     <Card className="iff-chrome-panel">
       <CardHeader className="pb-3">
-        <CardTitle className="font-[var(--font-display)] text-3xl font-light">What will {state.player.name} do next?</CardTitle>
+        <CardTitle className="font-[var(--font-display)] text-3xl font-light">What will {getPlayerShortName(state.player)} do next?</CardTitle>
         <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
       </CardHeader>
       <Separator />
@@ -2337,7 +2353,7 @@ function CharacterPanel({
               <img src={state.player.portraitAsset} alt="" className="h-full w-full object-cover" />
             </span>
             <div className="min-w-0">
-              <h4 className="text-xl font-semibold">{state.player.name}</h4>
+              <h4 className="text-xl font-semibold">{getPlayerFullName(state.player)}</h4>
               <p className="text-sm text-muted-foreground">{state.player.role}</p>
             </div>
           </div>
@@ -2398,7 +2414,7 @@ function CharacterPanel({
                 </div>
               </ScrollArea>
             ) : (
-              <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{state.player.name} is carrying no visible keepsakes right now.</p>
+              <p className="mt-3 font-serif text-sm leading-6 text-muted-foreground">{getPlayerShortName(state.player)} is carrying no visible keepsakes right now.</p>
             )}
           </div>
           </section>
@@ -2461,22 +2477,51 @@ function StorySelectionScreen({
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               {players.map((player) => {
                 const selected = player.id === selectedPlayerId
+                const visibleInventory = player.inventory.filter((item) => item.visible)
 
                 return (
                   <button
                     key={player.id}
                     type="button"
                     aria-pressed={selected}
-                    className="flex gap-3 border border-[var(--color-border)] bg-background p-4 text-left transition-colors hover:bg-muted aria-pressed:border-[var(--color-border-strong)] aria-pressed:bg-muted"
+                    className="flex flex-col gap-4 border border-[var(--color-border)] bg-background p-4 text-left transition-colors hover:bg-muted aria-pressed:border-[var(--color-border-strong)] aria-pressed:bg-muted"
+                    style={{ borderTopColor: player.color }}
                     onClick={() => onSelectPlayer(player.id)}
                   >
-                    <img src={player.portraitAsset} alt="" className="h-24 w-16 shrink-0 border border-[var(--color-border)] object-cover" />
-                    <span className="min-w-0">
-                      <span className="block font-serif text-xl leading-tight">{player.name}</span>
-                      <span className="mt-1 block text-sm text-muted-foreground">{player.role}</span>
-                      <span className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
-                        <Badge variant="outline">Mental: {player.aptitudes.mentalFortitude}</Badge>
+                    <span className="flex gap-3 sm:items-start">
+                      <img src={player.portraitAsset} alt="" className="h-28 w-20 shrink-0 border object-cover" style={{ borderColor: player.color }} />
+                      <span className="min-w-0">
+                        <span className="block font-serif text-xl leading-tight">{getPlayerFullName(player)}</span>
+                        <span className="mt-1 block text-sm text-muted-foreground">{player.role}</span>
+                        <span className="mt-3 block font-serif text-sm leading-5 text-muted-foreground">{player.backstory.want}</span>
+                      </span>
+                    </span>
+                    <span className="font-serif text-sm leading-6 text-muted-foreground">
+                      {player.backstory.origin} {player.backstory.wound}
+                    </span>
+                    <span className="grid gap-3 sm:grid-cols-2">
+                      <span>
+                        <span className="block text-sm font-medium">Aptitudes</span>
+                        <span className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
+                          <Badge variant="outline">Mental fortitude: {player.aptitudes.mentalFortitude}</Badge>
+                        </span>
+                      </span>
+                      <span>
+                        <span className="block text-sm font-medium">Strengths</span>
+                        <span className="mt-2 flex flex-wrap gap-2">
+                          {player.skillTags.map((skill) => {
+                            const definition = skillTagDefinitions[skill]
+
+                            return <Badge key={skill} variant="outline" title={definition?.summary ?? skill}>{definition?.label ?? skill}</Badge>
+                          })}
+                        </span>
+                      </span>
+                    </span>
+                    <span>
+                      <span className="block text-sm font-medium">Inventory</span>
+                      <span className="mt-2 flex flex-wrap gap-2">
+                        {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
                       </span>
                     </span>
                   </button>
@@ -2501,17 +2546,41 @@ function ProtagonistIntroScreen({ player, onBegin }: { player: PlayableCharacter
       <Card className="iff-chrome-panel max-w-3xl">
         <CardHeader>
           <p className="ui-label">You are</p>
-          <CardTitle className="font-[var(--font-display)] text-4xl font-light">{player.name}</CardTitle>
+          <CardTitle className="font-[var(--font-display)] text-4xl font-light">{getPlayerFullName(player)}</CardTitle>
           <CardDescription className="font-serif text-base leading-7">{player.role}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]">
-          <img src={player.portraitAsset} alt="" className="h-44 w-32 border border-[var(--color-border)] object-cover" />
+          <img src={player.portraitAsset} alt="" className="h-44 w-32 border object-cover" style={{ borderColor: player.color }} />
           <div className="flex flex-col gap-4">
-            <p className="font-serif text-base leading-relaxed text-muted-foreground">{player.backstory.origin} {player.backstory.wound}</p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
-              <Badge variant="outline">Mental fortitude: {player.aptitudes.mentalFortitude}</Badge>
-              {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
+            <div className="font-serif text-base leading-relaxed text-muted-foreground">
+              <p>{player.backstory.origin} {player.backstory.wound}</p>
+              <p className="mt-2">{player.backstory.want}</p>
+              <p className="mt-2 italic">Contradiction: {player.voice.contradiction}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-sm font-medium">Aptitudes</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline">Strength: {player.aptitudes.strength}</Badge>
+                  <Badge variant="outline">Mental fortitude: {player.aptitudes.mentalFortitude}</Badge>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Strengths</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {player.skillTags.map((skill) => {
+                    const definition = skillTagDefinitions[skill]
+
+                    return <Badge key={skill} variant="outline" title={definition?.summary ?? skill}>{definition?.label ?? skill}</Badge>
+                  })}
+                </div>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium">Inventory</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
+              </div>
             </div>
             <Button type="button" size="lg" onClick={onBegin}>Begin</Button>
           </div>

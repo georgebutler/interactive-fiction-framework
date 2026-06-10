@@ -36,7 +36,8 @@ export type PlayableCharacterAptitudes = {
 
 export type PlayableCharacter = {
   id: string
-  name: string
+  firstName: string
+  lastName: string
   role: string
   portraitAsset: string
   color: string

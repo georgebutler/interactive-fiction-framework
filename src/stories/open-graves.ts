@@ -92,6 +92,26 @@ const royalWrit: InventoryItem = {
   visible: true,
 }
 
+const graveLedger: InventoryItem = {
+  id: 'grave-ledger',
+  name: 'Grave Ledger',
+  description: 'A parish ledger wrapped in oilcloth, crowded with names the court would rather turn into numbers.',
+  tags: ['records', 'names'],
+  iconAssetId: 'codex',
+  consumable: false,
+  visible: true,
+}
+
+const mirehillWhistle: InventoryItem = {
+  id: 'mirehill-whistle',
+  name: 'Mirehill Whistle',
+  description: 'A dented campaign whistle Corvin will not blow, though his thumb still finds its split seam when orders start sounding clean.',
+  tags: ['memory', 'command'],
+  iconAssetId: 'bellClapper',
+  consumable: false,
+  visible: true,
+}
+
 const betterKnife: InventoryItem = {
   id: 'armory-knife',
   name: 'Armory Knife',
@@ -162,12 +182,13 @@ const storySchema: StorySchema = {
   players: [
     {
       id: 'tamsin',
-      name: 'Tamsin',
-      role: 'Grave-tender under royal order',
+      firstName: 'Tamsin',
+      lastName: 'Vale',
+      role: 'Parish grave-tender under royal order',
       portraitAsset: publicDomainPortraitAsset,
       color: '#7dd3fc',
       condition: 'Tired, mud-spattered, and steady enough to keep moving.',
-      inventory: [fieldSpade, blessedWater, ironNails, royalWrit],
+      inventory: [fieldSpade, blessedWater, graveLedger, royalWrit],
       skillTags: ['grave-lore', 'plain-speech', 'mental-fortitude'],
       aptitudes: {
         strength: 'low',
@@ -181,21 +202,22 @@ const storySchema: StorySchema = {
         contradiction: 'respects burial customs but distrusts anyone who turns sacrifice into policy',
       },
       backstory: {
-        origin: 'Tamsin tends graves outside Redvale and was taken by levy because she knows burial ground better than court men do.',
-        wound: 'She has buried neighbors for orders written by people who never learned their names.',
-        want: 'She wants to survive, end the rising dead, and make the king admit what this command costs.',
-        privateKnowledge: 'Burial customs can slow panic and make frightened witnesses useful, even when they cannot explain what they saw.',
+        origin: 'Tamsin Vale keeps Redvale’s parish graves and was taken by levy because she can read burial ground better than court men can read reports.',
+        wound: 'She has buried neighbors under names the crown misspelled, then watched those names become numbers in a clean royal hand.',
+        want: 'She wants to put the dead back down properly, survive the king’s command, and force the court to name what its orders cost.',
+        privateKnowledge: 'Burial customs can steady the living as much as the dead; the right rite, word, or silence can turn panic into testimony.',
       },
-      memory: ['The king called it service because he could not bear to call it fear.'],
+      memory: ['Tamsin once dug through sleet to reopen Mara Venn’s grave because the royal clerk wrote the wrong name, and the widow would not leave until the soil knew who it held.'],
     },
     {
       id: 'corvin-hale',
-      name: 'Corvin Hale',
+      firstName: 'Corvin',
+      lastName: 'Hale',
       role: 'Retired mercenary under royal order',
       portraitAsset: publicDomainPortraitAsset,
       color: '#f97316',
       condition: 'Broad-shouldered, travel-worn, and holding composure together by habit more than peace.',
-      inventory: [fieldSpade, blessedWater, ironNails, royalWrit],
+      inventory: [ironNails, betterKnife, mirehillWhistle, royalWrit],
       skillTags: ['raw-strength', 'steady-hands', 'plain-speech'],
       aptitudes: {
         strength: 'high',
@@ -894,7 +916,7 @@ export const openGravesStory = {
   schema: storySchema,
   iconAssets: storyIconAssets,
   skillTagDefinitions,
-  allKnownItems: [fieldSpade, blessedWater, ironNails, royalWrit, betterKnife, crackedSpearHead, bellClapper, boneCharm],
+  allKnownItems: [fieldSpade, blessedWater, ironNails, royalWrit, graveLedger, mirehillWhistle, betterKnife, crackedSpearHead, bellClapper, boneCharm],
   codexTermTargets,
   codexTermSummaries,
   runtime: {
