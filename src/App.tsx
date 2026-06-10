@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber'
 import { Html, Line, OrbitControls, PerspectiveCamera } from '@react-three/drei'
 import type { Group } from 'three'
-import { AlertCircleIcon, BookOpenIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
+import { AlertCircleIcon, BookOpenIcon, BrainCircuitIcon, ClockIcon, EyeIcon, HandIcon, MapIcon, MessageCircleIcon, MessageCircleQuestionIcon, MoonIcon, PackageIcon, PlayIcon, SettingsIcon, SunIcon, TriangleAlertIcon, UserRoundIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -850,8 +850,17 @@ function getChoiceDisabledReason(state: CampaignState, choice: StoryChoice) {
   return undefined
 }
 
+const choiceModeSortOrder: Record<StoryChoiceMode, number> = {
+  act: 0,
+  wait: 1,
+  ask: 2,
+  say: 3,
+  'use-item': 4,
+  risk: 5,
+}
+
 function getAvailableChoices(state: CampaignState) {
-  return state.currentEvent?.choices ?? []
+  return [...(state.currentEvent?.choices ?? [])].sort((left, right) => choiceModeSortOrder[left.mode] - choiceModeSortOrder[right.mode])
 }
 
 function getApplicableChoiceSkillTags(choice: StoryChoice, player: PlayableCharacter) {
@@ -1088,6 +1097,22 @@ function formatRecentFeed(feed: FeedEntry[]) {
     .join('\n')
 }
 
+function formatPressureForPrompt(tension: number) {
+  if (tension >= 75) {
+    return 'severe'
+  }
+
+  if (tension >= 50) {
+    return 'high'
+  }
+
+  if (tension >= 25) {
+    return 'rising'
+  }
+
+  return 'low'
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -1298,7 +1323,7 @@ function getOrCreateEventNpc(state: CampaignState, event: StoryEvent) {
   }
 }
 
-const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original schema and generic genre language.'
+const originalStoryRule = 'Do not name, quote, imitate, or allude to protected fictional settings, characters, authors, franchises, signature passages, or named external works. Use only this original story material and generic genre language.'
 const playerAgencyRule = 'Do not write the player character’s private thoughts, feelings, doubts, motives, exact speech, or unchosen actions. Only frame, resolve, or respond to the selected option as stated.'
 const gameMasterNarratorFrame = `You are a Game Master narrating a living world. You write in second person, present tense.
 You describe only what the player character can perceive right now — what they see, hear, smell, and feel in this exact moment. You never summarise past events or skip ahead. You never write the player character's thoughts, decisions, or dialogue. Every passage should end with the world in a state of tension — something unresolved, a detail that demands attention, or a choice that feels urgent. You respect the world's fixed rules absolutely: locations are fixed, exits are fixed, NPCs behave consistently with their established nature. You do not invent new locations, new exits, or new factions. If an authored choice leads to a consequence, you narrate that consequence viscerally and concretely. Keep passages to 120–180 words.`
@@ -1333,7 +1358,7 @@ This run's transient texture:
 
 Use these to vary atmosphere, NPC behavior, sensory detail, and scene presentation.
 You may invent transient visible details that fit the current event.
-You must not invent durable state: no new inventory, flags, map routes, endings, factions, or solved mysteries unless listed by schema or hard effects.
+You must not invent durable story facts: no new inventory, flags, map routes, endings, factions, or solved mysteries unless listed by story data or listed consequences.
 ---`
 }
 
@@ -1426,15 +1451,35 @@ function getInvalidGeneratedDirections(state: CampaignState, text: string) {
 }
 
 function getSelectedChoicePromptPrefix(choice: StoryChoice) {
-  if (choice.displayStyle === 'dialogue') {
-    return `The player says (intent): ${choice.label}`
+  if (choice.mode === 'ask') {
+    return `The player asks exactly: “${choice.label}”`
+  }
+
+  if (choice.mode === 'say') {
+    return `The player says exactly: “${choice.label}”`
   }
 
   if (choice.displayStyle === 'passive') {
-    return 'The player waits and observes.'
+    return `The player waits and observes without speaking, taking items, moving locations, or changing tracked story facts unless listed consequences require it. Use the choice label as the visible intention: “${choice.label}”`
   }
 
   return `The player acts: ${choice.label}`
+}
+
+function getSelectedChoiceLogText(choice: StoryChoice) {
+  if (choice.mode === 'ask') {
+    return `You ask: “${choice.label}”`
+  }
+
+  if (choice.mode === 'say') {
+    return `You say: “${choice.label}”`
+  }
+
+  if (choice.mode === 'wait' || choice.displayStyle === 'passive') {
+    return 'You hold still and observe.'
+  }
+
+  return `You choose: ${choice.label}`
 }
 
 function buildSceneOpeningPrompt(state: CampaignState, event: StoryEvent) {
@@ -1479,7 +1524,7 @@ Rules:
 - Do not decide the player's action.
 - Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
 - If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
-- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond listed consequences.
 - ${playerAgencyRule}
 - Do not invent inventory, victory, loss, map movement, or hidden discoveries.
 - You may describe visible strain, wounds, fatigue, relief, composure, or other condition changes naturally, but never as HP, health points, bars, levels, numbers, or percentages.
@@ -1514,15 +1559,15 @@ Current scene: ${event.name}
 Scene pressure: ${event.prompt}
 Player character:
 ${formatPlayerSheet(state.player)}
-Game Master direction from contributor-only choice fields:
-Selected choice framing: ${getSelectedChoicePromptPrefix(choice)}
-Writer intent: ${choice.writerIntent}
-Neutral summary: ${choice.neutralSummary}
-Action prompt: ${choice.actionPrompt}
-Player-facing mode: ${choice.mode}
+Selected player choice:
+${getSelectedChoicePromptPrefix(choice)}
+Mode: ${choice.mode}
+Writer guidance, not prose to quote:
+${choice.writerIntent}
+${choice.actionPrompt}
 Relevant selected-protagonist skill color: ${getApplicableChoiceSkillTags(choice, state.player).join(', ') || 'none'}
-Hard state effects handled by code:
-${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
+Lasting consequences available to narration:
+${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'None listed. Keep the result to visible atmosphere, positioning, reactions, and available openings.'}
 Recent visible story:
 ${formatRecentFeed(state.feed)}
 Compact story memory:
@@ -1533,13 +1578,14 @@ Rules:
 - Resolve only the selected option.
 - Format the passage as two or three short paragraphs separated by blank lines; avoid one dense wall of text.
 - Do not add unselected motives, regrets, memories, emotions, thoughts, or private conclusions for the player character.
-- Do not write exact dialogue for the player character unless the selected option itself contains exact quoted words.
-- If the selected option is conversational, summarize the communicated intent without inventing a full spoken line.
+- If the selected option is Ask or Say, use the selected option label as the player character's exact spoken line and do not invent alternate player wording.
+- For non-Ask/Say options, do not write exact dialogue for the player character.
 - Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
 - If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
-- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond listed consequences.
 - ${playerAgencyRule}
-- Do not invent additional inventory, map, victory, or loss changes beyond the hard effects listed above.
+- Do not claim inventory, location, relationship, quest, condition, discovery, victory, or loss changes unless listed above.
+- Never mention private writing constraints, hidden rules, hidden flags, diagnostics, or pressure ratings in player-facing prose.
 - You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
 - If someone speaks, use their actual name followed by a colon. Never write the literal label "Name:".
 - ${activeStory.runtime.narrationStyleRule}
@@ -1560,7 +1606,7 @@ Player character:
 ${formatPlayerSheet(state.player)}
 Inventory: ${state.player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
 Flags: ${Object.entries(state.flags).filter(([, value]) => value).map(([flag]) => flag).join(', ') || 'None'}
-Tension: ${state.simulation.tension}/100
+Current pressure: ${formatPressureForPrompt(state.simulation.tension)}
 ---
 
 ${formatMemoryForPrompt(memory)}
@@ -1568,7 +1614,7 @@ ${formatMemoryForPrompt(memory)}
 --- DIRECTOR GOAL ---
 Scene type: ${plan.sceneType}
 Purpose: ${plan.objective}
-Target tension: ${plan.tension}/100
+Target pressure: ${formatPressureForPrompt(plan.tension)}
 ---
 
 --- SCENE PLAN ---
@@ -1623,30 +1669,30 @@ Current place: ${node.publicName}
 Current scene: ${event.name}
 Player character:
 ${formatPlayerSheet(state.player)}
-Tension: ${state.simulation.tension}/100
+Current pressure: ${formatPressureForPrompt(state.simulation.tension)}
 ---
 
 ${formatMemoryForPrompt(memory)}
 
 --- SELECTED PLAYER CHOICE ---
-Label: ${choice.label}
+${getSelectedChoicePromptPrefix(choice)}
 Mode: ${choice.mode}
-Neutral summary: ${choice.neutralSummary}
-Writer intent: ${choice.writerIntent}
-Action prompt: ${choice.actionPrompt}
+Writer guidance, not prose to quote:
+${choice.writerIntent}
+${choice.actionPrompt}
 Relevant selected-protagonist skill color: ${getApplicableChoiceSkillTags(choice, state.player).join(', ') || 'none'}
 ---
 
---- DETERMINISTIC EFFECTS ALREADY DECIDED BY CODE ---
-${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
-Only these effects may be described if visibly relevant. Do not add any other state change.
+--- LASTING CONSEQUENCES AVAILABLE TO NARRATION ---
+${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'None listed. Keep the outcome to visible atmosphere, positioning, reactions, and available openings.'}
+Do not claim inventory, location, relationship, quest, condition, discovery, victory, or loss changes unless listed above.
 ---
 
 Return only valid JSON matching this exact schema. No markdown fences. No extra fields:
 {
   "summary": "visible resolution prose, 120-180 words, no player mind reading",
   "visibleFacts": ["external facts visible after the action"],
-  "discoveries": ["only discoveries justified by deterministic effects or existing memory"],
+  "discoveries": ["only discoveries justified by listed consequences or existing memory"],
   "opportunities": ["remaining openings, if any"],
   "npcMentions": ["NPC names present or referenced"],
   "mood": "atmosphere and consequence",
@@ -1655,20 +1701,28 @@ Return only valid JSON matching this exact schema. No markdown fences. No extra 
 
 Rules:
 - Resolve only the selected option.
-- Do not write exact dialogue for the player character.
+- If the selected option is Ask or Say, use the selected option label as the player character's exact spoken line and do not invent alternate player wording.
+- For non-Ask/Say options, do not write exact dialogue for the player character.
 - ${playerAgencyRule}
 - Do not invent inventory, map, victory, loss, relationship, reputation, quest, or flag changes.
+- Never mention private writing constraints, hidden rules, hidden flags, diagnostics, or pressure ratings in player-facing fields.
 - ${originalStoryRule}`
 }
 
 function generatedSceneToText(scene: GeneratedScene) {
+  const mood = isPlayerFacingGeneratedLine(scene.mood) ? scene.mood : ''
+
   return [
     scene.summary,
     scene.visibleFacts.length > 0 ? `Visible facts: ${scene.visibleFacts.join(' ')}` : '',
     scene.discoveries.length > 0 ? `Discoveries: ${scene.discoveries.join(' ')}` : '',
     scene.opportunities.length > 0 ? `Opportunities: ${scene.opportunities.join(' ')}` : '',
-    scene.mood,
+    mood,
   ].filter(Boolean).join('\n\n')
+}
+
+function isPlayerFacingGeneratedLine(text: string) {
+  return !/\b(?:Tension\s+\d+\/100|mechanical state|deterministic effects?|explicitly allowed|code has|JSON|schema|debug)\b/i.test(text)
 }
 
 function formatValidationReport(result: SceneValidationResult) {
@@ -1704,11 +1758,11 @@ Want: ${npc.want}
 Knows: ${npc.knows}
 Current place: ${node.publicName}
 Scene: ${event.name} — ${event.prompt}
-Game Master direction from contributor-only choice fields:
-Selected choice framing: ${getSelectedChoicePromptPrefix(choice)}
-Writer intent: ${choice.writerIntent}
-Neutral summary: ${choice.neutralSummary}
-Action prompt: ${choice.actionPrompt}
+Selected player choice:
+${getSelectedChoicePromptPrefix(choice)}
+Writer guidance, not prose to quote:
+${choice.writerIntent}
+${choice.actionPrompt}
 Resolution so far:
 ${resolutionText}
 Compact story memory:
@@ -1723,9 +1777,10 @@ Rules:
 - If the selected option was conversational, respond to its stated intent without adding new words the player character did not choose.
 - Use the selected protagonist's voice, aptitudes, and background only as color for visible presentation; do not make story-critical facts depend on protagonist-specific backstory.
 - If the protagonist has low mental fortitude, show pressure through visible hesitation, strain, breath, posture, or social reaction; do not remove agency or force panic.
-- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond hard state effects.
+- If the protagonist has high strength, show physical confidence only when it fits the selected option; do not add extra successes beyond listed consequences.
 - ${playerAgencyRule}
 - Do not invent inventory, map, victory, or loss changes.
+- Never mention private writing constraints, hidden rules, hidden flags, diagnostics, or pressure ratings in player-facing prose.
 - You may reflect visible consequences to the player character’s condition in prose, without HP, bars, levels, numbers, or percentages.
 - ${activeStory.runtime.narrationStyleRule}
 - ${originalStoryRule}`
@@ -1738,7 +1793,7 @@ Player: ${getPlayerFullName(state.player)}
 Previous condition: ${state.player.condition}
 
 Selected choice:
-${choice.neutralSummary}
+${getSelectedChoicePromptPrefix(choice)}
 
 Visible result:
 ${resolutionText}
@@ -1859,14 +1914,14 @@ function StoryTranscript({
           const locationLabel = group.location.content?.name ?? group.location.text
 
           return (
-            <fieldset key={group.location.id} className="min-w-0 border border-[var(--color-border)] px-4 pb-4 pt-2">
-              <legend className="ml-2 px-2 font-serif text-[0.72rem] font-normal uppercase tracking-[0.22em] text-[var(--color-text-muted)]">
-                {locationLabel}
-              </legend>
-              {group.entries.map((entry) => (
-                <FeedBlock key={entry.id} entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
-              ))}
-            </fieldset>
+            <section key={group.location.id} className="min-w-0">
+              <p className="ui-label mb-2">{locationLabel}</p>
+              <div className="min-w-0 border border-[var(--color-border)] px-4 py-4">
+                {group.entries.map((entry) => (
+                  <FeedBlock key={entry.id} entry={entry} references={references} canonicalFacts={state.canonicalFacts} onRetry={onRetry} />
+                ))}
+              </div>
+            </section>
           )
         })}
       </div>
@@ -1901,7 +1956,8 @@ function FeedBlock({
     return null
   }
 
-  const renderedLines = lines.length > 0 ? lines : [entry.streaming ? 'The next passage is taking shape…' : 'Continue to reveal the next line.']
+  const isThinking = lines.length === 0 && Boolean(entry.streaming)
+  const renderedLines = lines.length > 0 ? lines : []
   const blockClassName = entry.kind === 'dialogue'
     ? 'border-l border-[var(--color-border)] bg-muted/60 px-4 py-3'
     : entry.kind === 'selected'
@@ -1921,6 +1977,7 @@ function FeedBlock({
       ) : null}
       {entry.kind !== 'system' ? (
         <div className={blockClassName}>
+            {isThinking ? <ThinkingIndicator /> : null}
             {renderedLines.map((line, index) => {
               const styledLine = getVisualNovelLineStyle(line)
               const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
@@ -1952,6 +2009,24 @@ function FeedBlock({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-3 py-2 text-[var(--color-text-muted)]" aria-live="polite" aria-label="The narrator is thinking">
+      <span className="relative inline-flex size-8 items-center justify-center" aria-hidden="true">
+        <span className="absolute inset-0 rounded-full border border-[var(--color-accent)] opacity-30 animate-ping" />
+        <span className="relative inline-flex size-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-raised)]">
+          <BrainCircuitIcon className="size-4 animate-pulse text-[var(--color-accent)]" />
+        </span>
+      </span>
+      <span className="flex items-center gap-1" aria-hidden="true">
+        <span className="size-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce [animation-delay:-0.2s]" />
+        <span className="size-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce [animation-delay:-0.1s]" />
+        <span className="size-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" />
+      </span>
+    </div>
   )
 }
 
@@ -2481,7 +2556,7 @@ function ChoicePanel({
   return (
     <Card className="iff-chrome-panel">
       <CardHeader className="pb-3">
-        <CardTitle className="font-[var(--font-display)] text-3xl font-light">What will {getPlayerShortName(state.player)} do next?</CardTitle>
+        <CardTitle className="ui-label">What will {getPlayerShortName(state.player)} do next?</CardTitle>
         <CardDescription className="font-serif">{currentEvent?.prompt}</CardDescription>
       </CardHeader>
       <Separator />
@@ -2500,35 +2575,37 @@ function ChoicePanel({
           const disabledId = `${choice.id}-disabled-reason`
           const describedBy = disabledReason ? disabledId : undefined
           const modeColor = getStoryChoiceModeColor(choice.mode)
-          const isAction = choice.displayStyle === 'action'
-          const isDialogue = choice.displayStyle === 'dialogue'
           const isPassive = choice.displayStyle === 'passive'
           const applicableSkillTags = getApplicableChoiceSkillTags(choice, state.player)
 
           return (
-            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-all duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-55 ${isDialogue ? 'pl-7' : ''} ${isPassive ? 'py-2.5' : ''} ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
+            <button key={choice.id} type="button" disabled={disabled} title={disabledReason ?? choice.label} aria-describedby={describedBy} className={`iff-choice-card relative w-full cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] py-3 pl-4 pr-4 text-left transition-[background-color,border-color,box-shadow] duration-150 hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-55 ${isPassive ? 'py-2.5' : ''} ${confirming ? 'bg-[var(--color-accent-dim)] ring-1 ring-[var(--color-accent)]' : ''}`} onClick={() => onChoose(choice)}>
               <span className="absolute bottom-0 left-0 top-0 w-[3px]" style={{ backgroundColor: modeColor }} />
               <span className="block">
-                <span className={`mb-1.5 inline-flex items-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60 ${isPassive ? 'opacity-40' : ''}`} style={{ color: modeColor }}>
-                  <StoryChoiceModeIcon mode={choice.mode} />
-                  {getStoryChoiceModeBadge(choice.mode)}
-                </span>
-                <span className={`mb-1 block leading-snug ${isAction ? 'text-sm font-bold text-[var(--color-text)]' : ''} ${isDialogue ? 'text-sm italic text-[var(--color-text)]' : ''} ${isPassive ? 'text-xs text-[var(--color-text-muted)]' : ''}`}>
-                  <span>
-                    {isDialogue ? <span aria-hidden="true">“</span> : null}
-                    {confirming ? `Confirm: ${choice.label}` : choice.label}
+                <span className="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:grid-cols-[4.75rem_minmax(0,1fr)_minmax(9rem,max-content)]">
+                  <span className={`mt-0.5 inline-flex w-[4.75rem] shrink-0 items-center justify-center gap-1.5 border border-current px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest opacity-60 ${isPassive ? 'opacity-40' : ''}`} style={{ color: modeColor }}>
+                    <StoryChoiceModeIcon mode={choice.mode} />
+                    {getStoryChoiceModeBadge(choice.mode)}
                   </span>
-                </span>
-                {!isPassive && applicableSkillTags.length > 0 ? (
-                  <span className="mt-2 flex flex-wrap gap-1.5">
-                    {applicableSkillTags.map((skill) => (
-                      <span key={skill} className="inline-flex items-center gap-1.5 border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
-                        <span className="opacity-60">Skill:</span>
-                        <span>{skillTagDefinitions[skill].label}</span>
-                      </span>
-                    ))}
+                  <span className="min-w-0 flex-1 text-sm font-normal leading-snug text-[var(--color-text)]">
+                    <span>
+                      {confirming ? 'Confirm: ' : null}
+                      {choice.mode === 'ask' || choice.mode === 'say' ? <span aria-hidden="true">“</span> : null}
+                      {choice.label}
+                      {choice.mode === 'ask' || choice.mode === 'say' ? <span aria-hidden="true">”</span> : null}
+                    </span>
                   </span>
-                ) : null}
+                  {!isPassive && applicableSkillTags.length > 0 ? (
+                    <span className="col-start-2 flex min-w-[9rem] shrink-0 flex-wrap justify-end gap-1.5 text-right sm:col-start-3 sm:row-start-1">
+                      {applicableSkillTags.map((skill) => (
+                        <span key={skill} className="inline-flex items-center gap-1.5 border border-[var(--color-border-subtle)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
+                          <span className="opacity-60">Skill:</span>
+                          <span>{skillTagDefinitions[skill].label}</span>
+                        </span>
+                      ))}
+                    </span>
+                  ) : <span className="hidden min-w-[9rem] sm:col-start-3 sm:row-start-1 sm:block" aria-hidden="true" />}
+                </span>
                 {disabledReason ? <span id={disabledId} className="mt-2 block text-xs font-medium text-[var(--color-text-muted)]">{disabledReason}</span> : null}
                 {needsConfirm && confirming ? (
                   <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
@@ -3245,7 +3322,7 @@ function App() {
         speaker: 'Your choice',
         nodeId: node.id,
         eventId: event.id,
-        text: choice.neutralSummary,
+        text: getSelectedChoiceLogText(choice),
       })
       appendDebugEntry({
         label: 'Selected choice',
@@ -3257,7 +3334,7 @@ function App() {
       appendDebugEntry({ label: 'Structured resolution prompt', text: resolutionPrompt })
       appendDebugEntry({ label: 'Legacy resolution prompt (superseded)', text: buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects) })
       const resolutionEntryId = appendFeedEntry({ kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
-      const fallbackResolution = buildFallbackResolution({ label: choice.label, neutralSummary: choice.neutralSummary, effects })
+      const fallbackResolution = buildFallbackResolution({ choice, currentPlace: node.publicName, effects })
       const rawResolutionJson = await streamLocalText(llmSettings, resolutionPrompt, () => {})
       const resolutionValidation = parseGeneratedSceneJson(rawResolutionJson, fallbackResolution, ['continue'])
       appendDebugEntry({ label: 'Resolution JSON validation', text: formatValidationReport(resolutionValidation) })
@@ -3452,10 +3529,12 @@ function App() {
                 <TabsContent value="story" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
                     <CardHeader className="shrink-0 border-b border-[var(--color-border)] pb-4">
-                      <div className="min-w-0">
-                        <p className="ui-label">Current location</p>
-                        <CardTitle className="mt-1 font-[var(--font-display)] text-4xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
-                        <CardDescription className="mt-2 w-full max-w-none font-serif text-sm leading-6">{currentNode.description}</CardDescription>
+                      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,auto)_minmax(18rem,1fr)] lg:items-end lg:gap-6">
+                        <div className="min-w-0">
+                          <p className="ui-label">Current location</p>
+                          <CardTitle className="mt-1 font-[var(--font-display)] text-4xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
+                        </div>
+                        <CardDescription className="w-full max-w-none self-end font-serif text-sm leading-6 lg:max-w-xl lg:justify-self-end lg:text-right">{currentNode.description}</CardDescription>
                       </div>
                     </CardHeader>
                     <CardContent className="min-h-0 flex-1 p-0">

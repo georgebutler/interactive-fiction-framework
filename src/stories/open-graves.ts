@@ -172,7 +172,7 @@ const storySchema: StorySchema = {
   fixedRules: [
     'The end user plays the selected protagonist directly.',
     'The story-critical plot does not depend on which protagonist was selected; protagonist details may color narration but cannot change hard state.',
-    'Authored choices decide what the protagonist can attempt; generated prose may enrich but cannot override mechanical state.',
+    'Authored choices decide what the protagonist can attempt; generated prose may enrich but cannot override tracked story facts.',
     'Inventory is visible story state and changes only through authored effects.',
     'The protagonist’s condition is visible prose, never a number, bar, level, or percentage.',
     'The codex is compact known memory for the player and the local narrator.',
@@ -406,10 +406,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'make-king-name-cost',
-          label: 'Make the king name what he is asking of you',
+          label: 'What are you asking me to do, my king?',
           neutralSummary: 'You pressed for plain accountability instead of accepting the order silently.',
-          writerIntent: 'Offer a direct social option that challenges power without choosing exact words for the player.',
-          actionPrompt: 'The selected option is to press King Osric to speak plainly about sending one more subject where trained knights failed.',
+          writerIntent: 'Offer a direct social option that challenges power with the player’s exact question.',
+          actionPrompt: 'The selected option is to ask King Osric exactly what he is demanding before sending one more subject where trained knights failed.',
           mode: 'ask',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -449,10 +449,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'demand-usable-iron',
-          label: 'Demand usable iron before leaving',
+          label: 'Give me iron that will not break in a dead hand.',
           neutralSummary: 'You turned the bad equipment into a public problem the clerk had to answer.',
-          writerIntent: 'Give the player a forceful speech-intent option that improves preparation.',
-          actionPrompt: 'The selected option is to press the armory clerk for gear that will not fail at the first dead hand.',
+          writerIntent: 'Give the player a forceful spoken demand that improves preparation.',
+          actionPrompt: 'The selected option is to tell the armory clerk to provide gear that will not fail at the first dead hand.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -499,10 +499,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'answer-with-truth',
-          label: 'Answer him with the truth you can afford',
+          label: 'I know too little to promise safety, but I mean to stop what opened those graves.',
           neutralSummary: 'You gave a limited honest answer and left room for what was still unknown.',
-          writerIntent: 'Offer an empathetic conversational option without writing exact player dialogue.',
-          actionPrompt: 'The selected option is to answer Farmer Riel honestly about what is known, what is unknown, and the next intended step.',
+          writerIntent: 'Offer an empathetic spoken answer that stays honest about uncertainty.',
+          actionPrompt: 'The selected option is to answer Farmer Riel with the exact spoken promise in the choice label.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -513,10 +513,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'show-writ',
-          label: 'Show the Sealed Writ and ask for the first opened grave',
+          label: 'By the Sealed Writ, show me the first grave that opened.',
           neutralSummary: 'You used official authority to focus the exchange on a concrete lead.',
           writerIntent: 'Offer an authority-backed investigative option that may create distrust but gains direction.',
-          actionPrompt: 'The selected option is to show the Sealed Writ as authority to demand a path to the first disturbed grave.',
+          actionPrompt: 'The selected option is to show the Sealed Writ and ask exactly for the first disturbed grave.',
           mode: 'ask',
           displayStyle: 'dialogue',
           skillTags: ['grave-lore'],
@@ -617,10 +617,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'trade-for-rite',
-          label: 'Trade plain answers for the burial custom',
+          label: 'I will answer plainly; now tell me the burial custom that keeps the dead still.',
           neutralSummary: 'You treated the hermit as a bargainer and exchanged facts for useful instructions.',
-          writerIntent: 'Offer a direct social option that rewards candor with practical burial knowledge.',
-          actionPrompt: 'The selected option is to give Old Perrin plain answers about the opened graves and demand the burial instructions in return.',
+          writerIntent: 'Offer a direct spoken bargain that rewards candor with practical burial knowledge.',
+          actionPrompt: 'The selected option is to bargain with Old Perrin using the exact spoken line in the choice label.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -722,10 +722,10 @@ const storySchema: StorySchema = {
       choices: [
         {
           id: 'show-royal-dead-truth',
-          label: 'Tell the deserters what walks in royal colors',
+          label: 'The royal dead are walking first. Robbing me will not keep you alive.',
           neutralSummary: 'You used the deserters’ own fear and experience to make the roadblock feel pointless.',
-          writerIntent: 'Offer a direct conversational option that uses known evidence without exact dialogue.',
-          actionPrompt: 'The selected option is to tell Sergeant Maud about the royal corpse and challenge whether blocking this investigation helps anyone survive.',
+          writerIntent: 'Offer a direct spoken warning that uses known evidence.',
+          actionPrompt: 'The selected option is to tell Sergeant Maud the exact warning in the choice label.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['plain-speech'],
@@ -780,10 +780,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'speak-burial-name',
-          label: 'Speak the burial name and reach for the token',
+          label: 'Rest by your burial name, and let the living pass.',
           neutralSummary: 'You used the burial name to make the dead pause, then took the opening it created.',
-          writerIntent: 'Offer a reflective burial-knowledge option without inventing exact spoken words.',
-          actionPrompt: 'The selected option is to invoke the burial name and reach for the token while the dead man hesitates.',
+          writerIntent: 'Offer a reflective burial-knowledge option with exact spoken words.',
+          actionPrompt: 'The selected option is to invoke the burial name with the exact spoken line and reach for the token while the dead man hesitates.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['grave-lore'],
@@ -882,10 +882,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'demand-names-read',
-          label: 'Demand the names of the dead be read before reward',
+          label: 'Read the names of the dead before you speak of reward.',
           neutralSummary: 'You made witness and remembrance the price of any royal gratitude.',
           writerIntent: 'Offer a reflective ending option that centers the dead rather than reward.',
-          actionPrompt: 'The selected option is to refuse reward until the names of the raised and reburied dead are read aloud in the hall.',
+          actionPrompt: 'The selected option is to refuse reward with the exact spoken demand in the choice label.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['grave-lore', 'plain-speech'],
@@ -896,10 +896,10 @@ const storySchema: StorySchema = {
         },
         {
           id: 'name-royal-dead-before-court',
-          label: 'Put the court’s own names on the royal dead',
+          label: 'These were your dead, your names, and your command.',
           neutralSummary: 'You used what was learned in the barrow to make the court claim its dead before it could call them a general cost.',
           writerIntent: 'Offer a knowledge-driven ending that ties Old Perrin’s warning, the missing bell clapper, and the royal corpse into a public accusation the hall cannot soften.',
-          actionPrompt: 'The selected option is to name the bell-ringer buried without a clapper, the corpse found in royal colors, and Old Perrin’s warning before the court can turn the dead into a nameless sacrifice.',
+          actionPrompt: 'The selected option is to accuse the court with the exact spoken line in the choice label, tying Old Perrin’s warning, the missing bell clapper, and the royal corpse into public accusation.',
           mode: 'say',
           displayStyle: 'dialogue',
           skillTags: ['grave-lore', 'plain-speech'],
@@ -931,7 +931,7 @@ const openGravesBible: StoryBible = {
     'The Story Bible outranks generated prose, scene plans, and transient atmosphere.',
     'The LLM may reveal information, pressure, opportunity, dialogue, and mood, but may not create durable state.',
     'Every scene must contain information, uncertainty, and more than one meaningful approach.',
-    'Future mysteries must not be resolved before deterministic effects or discovered clues justify them.',
+    'Future mysteries must not be resolved before listed consequences or discovered clues justify them.',
   ],
   factions: [
     {

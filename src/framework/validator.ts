@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { StoryEffect } from '@/framework/schema'
+import type { StoryChoice, StoryEffect } from '@/framework/schema'
 import type { ProceduralScenePlan } from '@/framework/planner'
 
 export const generatedChoiceSchema = z.strictObject({
@@ -72,20 +72,66 @@ export function buildFallbackScene(input: { plan: ProceduralScenePlan; currentPl
     discoveries: input.plan.discoveries.slice(0, 2),
     opportunities: [input.plan.opportunity],
     npcMentions: input.plan.involvedNpcIds,
-    mood: `Tension ${input.plan.tension}/100; the moment remains unresolved.`,
+    mood: 'The room holds its breath around the next visible opening.',
     generatedChoices: input.plan.choiceIntents.slice(0, 4).map((choice) => ({ intentId: choice.id, label: choice.label, presentationHint: choice.objective })),
   }
 }
 
-export function buildFallbackResolution(input: { label: string; neutralSummary: string; effects: StoryEffect[] }): GeneratedScene {
+function isPassiveChoice(choice: Pick<StoryChoice, 'mode' | 'displayStyle'>) {
+  return choice.mode === 'wait' || choice.displayStyle === 'passive'
+}
+
+function fallbackResolutionSummary(input: { choice: Pick<StoryChoice, 'label' | 'mode' | 'displayStyle'>; currentPlace: string }) {
+  if (isPassiveChoice(input.choice)) {
+    return `At ${input.currentPlace}, you hold still and let the scene keep speaking through movement, spacing, and silence. No hidden answer declares itself, but the visible pressure remains available to act on.`
+  }
+
+  if (input.choice.mode === 'ask' || input.choice.mode === 'say') {
+    return `At ${input.currentPlace}, the words land inside the scene's existing pressure. The moment answers only through what can be seen and heard here.`
+  }
+
+  if (input.choice.mode === 'risk') {
+    return `At ${input.currentPlace}, the risky move presses against the scene's pressure without breaking it open. The immediate result stays visible, limited, and ready for the next move.`
+  }
+
+  return `At ${input.currentPlace}, the action plays out against the scene's existing pressure. Its immediate result stays visible, limited, and ready for the next move.`
+}
+
+function fallbackVisibleFactForEffect(effect: StoryEffect) {
+  if (effect.type === 'remember') {
+    return effect.text
+  }
+
+  if (effect.type === 'gainItem') {
+    return `${effect.item.name} is now visibly part of the scene's outcome.`
+  }
+
+  if (effect.type === 'loseItem') {
+    return 'Something previously available is no longer in the same position.'
+  }
+
+  if (effect.type === 'revealNode') {
+    return 'A possible way forward is now apparent.'
+  }
+
+  if (effect.type === 'moveToNode') {
+    return 'The scene turns toward its next place.'
+  }
+
+  return ''
+}
+
+export function buildFallbackResolution(input: { choice: Pick<StoryChoice, 'label' | 'mode' | 'displayStyle'>; currentPlace: string; effects: StoryEffect[] }): GeneratedScene {
+  const visibleFacts = input.effects.map(fallbackVisibleFactForEffect).filter(Boolean).slice(0, 4)
+
   return {
-    summary: input.neutralSummary,
-    visibleFacts: input.effects.map((effect) => (effect.type === 'remember' ? effect.text : `A deterministic consequence is applied: ${effect.type}.`)).slice(0, 4),
+    summary: fallbackResolutionSummary(input),
+    visibleFacts,
     discoveries: input.effects.filter((effect) => effect.type === 'remember').map((effect) => effect.text),
     opportunities: [],
     npcMentions: [],
-    mood: 'The choice changes what code has explicitly allowed, and nothing more.',
-    generatedChoices: [{ intentId: 'continue', label: input.label, presentationHint: 'The selected action resolves.' }],
+    mood: isPassiveChoice(input.choice) ? 'The moment stays taut, watchful, and ready for the next move.' : 'The pressure remains close, visible, and ready for the next move.',
+    generatedChoices: [{ intentId: 'continue', label: 'Continue', presentationHint: 'The scene resolves.' }],
   }
 }
 
