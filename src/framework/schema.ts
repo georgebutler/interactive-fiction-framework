@@ -1,3 +1,5 @@
+import type { StoryBible } from '@/framework/story-bible'
+
 export type StoryIconId = string
 
 export type SkillTag = string
@@ -76,6 +78,8 @@ export type StoryChoice = {
   /** @promptOnly — never render this */
   actionPrompt: string
   effects?: StoryEffect[]
+  generatedIntent?: boolean
+  intentId?: string
 }
 
 export type StoryEvent = {
@@ -88,6 +92,7 @@ export type StoryEvent = {
   objectiveNodeId?: string
   npcTemplate?: StoryNpcTemplate
   choices: StoryChoice[]
+  source?: 'authored' | 'procedural-adapter'
 }
 
 export type StoryObjective = {
@@ -220,4 +225,7 @@ export type StoryBundle = {
   codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>>
   codexTermSummaries: Record<string, string>
   runtime: StoryRuntimeConfig
+  vNext?: {
+    bible: StoryBible
+  }
 }

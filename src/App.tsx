@@ -13,7 +13,12 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { defaultStory } from '@/stories'
+import { chooseDirectorBeat, createInitialDirectorState, type DirectorState, type SceneType } from '@/framework/director'
+import { buildMemorySnapshot, formatMemoryForPrompt, type MemorySnapshot } from '@/framework/memory'
+import { choiceIntentToStoryChoice, planScene, type ProceduralScenePlan } from '@/framework/planner'
 import type { CodexReference, InventoryItem, PlayableCharacter, StoryChoice, StoryChoiceMode, StoryEffect, StoryEvent, StoryExit, StoryNode, StoryNodeType, StoryNpc, StoryNpcTemplate } from '@/framework/schema'
+import { createStoryBibleFromLegacySchema, formatStoryBibleForPrompt, type RelationshipScores, type SimulationUpdate, type StoryBible } from '@/framework/story-bible'
+import { buildFallbackResolution, buildFallbackScene, parseGeneratedSceneJson, type GeneratedScene, type SceneValidationResult } from '@/framework/validator'
 
 type FeedEntry = {
   id: string
@@ -45,6 +50,7 @@ type CampaignState = {
   storyNpcs: StoryNpc[]
   currentNodeId: string
   currentEvent?: StoryEvent
+  currentScenePlan?: ProceduralScenePlan
   sceneOpened: boolean
   exploredNodeIds: string[]
   eventHistory: StoryEvent[]
@@ -52,7 +58,16 @@ type CampaignState = {
   debugFeed: DebugEntry[]
   flags: Record<string, boolean>
   canonicalFacts: Record<string, string>
+  simulation: SimulationState
   outcome: 'running' | 'won' | 'lost'
+}
+
+type SimulationState = {
+  tension: number
+  relationships: Record<string, RelationshipScores>
+  reputation: Record<string, number>
+  quests: Record<string, { goal: string; progress: number; obstacles: string[]; urgency: number }>
+  director: DirectorState
 }
 
 type RunCreativeBrief = {
@@ -104,6 +119,7 @@ type OllamaStatus = 'checking' | 'connected' | 'unreachable'
 
 const activeStory = defaultStory
 const storySchema = activeStory.schema
+const storyBible = activeStory.vNext?.bible ?? createStoryBibleFromLegacySchema(storySchema)
 const storyIconAssets = activeStory.iconAssets
 const skillTagDefinitions = activeStory.skillTagDefinitions
 const allKnownItems = activeStory.allKnownItems
@@ -251,6 +267,31 @@ function createLocationFeedEntry(node: StoryNode): Omit<FeedEntry, 'id'> {
   }
 }
 
+function createInitialSimulationState(bible: StoryBible): SimulationState {
+  return {
+    tension: 20,
+    relationships: Object.fromEntries(
+      bible.characters.map((character) => [
+        character.id,
+        character.relationship ?? { trust: 0, fear: 0, respect: 0, debt: 0 },
+      ]),
+    ),
+    reputation: Object.fromEntries(bible.factions.map((faction) => [faction.id, faction.reputation ?? 0])),
+    quests: Object.fromEntries(
+      bible.mysteries.map((mystery, index) => [
+        mystery.id,
+        {
+          goal: mystery.question,
+          progress: index === 0 ? 10 : 0,
+          obstacles: mystery.knownClues,
+          urgency: 40 + index * 10,
+        },
+      ]),
+    ),
+    director: createInitialDirectorState(bible),
+  }
+}
+
 function createInitialCampaignState(player: PlayableCharacter): CampaignState {
   const initialNodeId = activeStory.runtime.initialNodeId
   const initialNode = getNode(initialNodeId)
@@ -261,6 +302,7 @@ function createInitialCampaignState(player: PlayableCharacter): CampaignState {
     storyNpcs: [],
     currentNodeId: initialNodeId,
     currentEvent: undefined,
+    currentScenePlan: undefined,
     sceneOpened: false,
     exploredNodeIds: activeStory.runtime.initialExploredNodeIds ?? [initialNodeId],
     eventHistory: [],
@@ -279,6 +321,7 @@ function createInitialCampaignState(player: PlayableCharacter): CampaignState {
     canonicalFacts: {
       [initialNode.publicName]: getNodeCanonicalFact(initialNode),
     },
+    simulation: createInitialSimulationState(storyBible),
     outcome: 'running',
   }
 }
@@ -577,6 +620,65 @@ function drawStoryEvent(state: CampaignState) {
   return {
     event: weightedChoice(pool, ({ weight }) => weight, next.value)?.event ?? storySchema.events[0],
     rngState: next.rngState,
+  }
+}
+
+function getCandidateEventsForNode(node: StoryNode) {
+  return node.eventWeights
+    .map(({ eventId }) => eventById.get(eventId))
+    .filter((event): event is StoryEvent => Boolean(event))
+}
+
+function buildCampaignMemorySnapshot(state: CampaignState) {
+  return buildMemorySnapshot({
+    feed: state.feed,
+    canonicalFacts: state.canonicalFacts,
+    playerMemory: state.player.memory,
+    npcMemories: state.storyNpcs.map((npc) => ({ npcId: npc.id, name: npc.name, memory: npc.memory })),
+    flags: state.flags,
+    inventory: state.player.inventory.filter((item) => item.visible),
+  })
+}
+
+function planNextScene(state: CampaignState) {
+  const node = getNode(state.currentNodeId)
+  const candidateEvents = getCandidateEventsForNode(node)
+  const random = nextRandom(state.runProfile.rngState)
+  const memory = buildCampaignMemorySnapshot(state)
+  const director = chooseDirectorBeat({
+    bible: storyBible,
+    currentNode: node,
+    candidateEvents,
+    recentEventIds: state.eventHistory.slice(-2).map((event) => event.id),
+    memory,
+    flags: state.flags,
+    directorState: state.simulation.director,
+    rngValue: random.value,
+  })
+  const legacyDraw = state.currentEvent ? { event: state.currentEvent, rngState: state.runProfile.rngState } : drawStoryEvent(state)
+  const adaptedEvent = director.adaptedEventId ? eventById.get(director.adaptedEventId) ?? legacyDraw.event : legacyDraw.event
+  const plan = planScene({
+    bible: storyBible,
+    currentNode: node,
+    player: state.player,
+    director,
+    adaptedEvent,
+    memory,
+    flags: state.flags,
+  })
+  const event: StoryEvent = {
+    ...adaptedEvent,
+    source: 'procedural-adapter',
+    prompt: plan.objective,
+    choices: plan.choiceIntents.map(choiceIntentToStoryChoice),
+  }
+
+  return {
+    event,
+    plan,
+    memory,
+    director,
+    rngState: random.rngState,
   }
 }
 
@@ -933,6 +1035,50 @@ function applyStoryEffects(state: CampaignState, effects: StoryEffect[]) {
   const outcome: CampaignState['outcome'] = currentNodeId === victory.goalNodeId && flags[victory.requiredFlag] ? 'won' : 'running'
 
   return { ...state, player, currentNodeId, exploredNodeIds, flags, outcome }
+}
+
+function applySimulationUpdate(simulation: SimulationState, update: SimulationUpdate | undefined, selectedSceneType?: SceneType) {
+  if (!update) {
+    return simulation
+  }
+
+  const relationships = { ...simulation.relationships }
+  for (const [id, delta] of Object.entries(update.relationshipDeltas ?? {})) {
+    const current = relationships[id] ?? { trust: 0, fear: 0, respect: 0, debt: 0 }
+    relationships[id] = {
+      trust: current.trust + (delta.trust ?? 0),
+      fear: current.fear + (delta.fear ?? 0),
+      respect: current.respect + (delta.respect ?? 0),
+      debt: current.debt + (delta.debt ?? 0),
+    }
+  }
+
+  const reputation = { ...simulation.reputation }
+  for (const [id, delta] of Object.entries(update.reputationDeltas ?? {})) {
+    reputation[id] = (reputation[id] ?? 0) + delta
+  }
+
+  const quests = { ...simulation.quests }
+  for (const [id, patch] of Object.entries(update.questUpdates ?? {})) {
+    const current = quests[id] ?? { goal: id, progress: 0, obstacles: [], urgency: 40 }
+    quests[id] = { ...current, ...patch }
+  }
+
+  const tension = clampNumber(simulation.tension + (update.tensionDelta ?? 0), 0, 100)
+
+  return {
+    tension,
+    relationships,
+    reputation,
+    quests,
+    director: {
+      ...simulation.director,
+      currentTension: tension,
+      storyMomentum: simulation.director.storyMomentum + 1,
+      recentSceneTypes: selectedSceneType ? [...simulation.director.recentSceneTypes, selectedSceneType].slice(-5) : simulation.director.recentSceneTypes,
+      factionInfluence: reputation,
+    },
+  }
 }
 
 function formatRecentFeed(feed: FeedEntry[]) {
@@ -1398,6 +1544,140 @@ Rules:
 - If someone speaks, use their actual name followed by a colon. Never write the literal label "Name:".
 - ${activeStory.runtime.narrationStyleRule}
 - ${originalStoryRule}`
+}
+
+function buildStructuredScenePrompt(state: CampaignState, plan: ProceduralScenePlan, memory: MemorySnapshot) {
+  const node = getNode(state.currentNodeId)
+  const choices = plan.choiceIntents.map((choice) => `- ${choice.id}: ${choice.label} [${choice.category}] target=${choice.target}; objective=${choice.objective}`).join('\n')
+
+  return `${formatStoryBibleForPrompt(storyBible)}
+
+--- CURRENT STATE ---
+Story: ${storySchema.title}
+Current place: ${node.publicName}
+Place purpose: ${node.description}
+Player character:
+${formatPlayerSheet(state.player)}
+Inventory: ${state.player.inventory.filter((item) => item.visible).map((item) => item.name).join(', ') || 'None'}
+Flags: ${Object.entries(state.flags).filter(([, value]) => value).map(([flag]) => flag).join(', ') || 'None'}
+Tension: ${state.simulation.tension}/100
+---
+
+${formatMemoryForPrompt(memory)}
+
+--- DIRECTOR GOAL ---
+Scene type: ${plan.sceneType}
+Purpose: ${plan.objective}
+Target tension: ${plan.tension}/100
+---
+
+--- SCENE PLAN ---
+Involved NPC ids: ${plan.involvedNpcIds.join(', ') || 'None'}
+Discoveries to incorporate without over-resolving: ${plan.discoveries.join('; ') || 'None'}
+Complications: ${plan.complications.join('; ') || 'None'}
+Opportunity: ${plan.opportunity}
+---
+
+--- NARRATIVE PATTERN ---
+Pattern: ${plan.patternId}
+---
+
+--- PLANNER-APPROVED CHOICE INTENTS ---
+${choices}
+---
+
+--- WRITER INSTRUCTIONS ---
+You are running a world simulation. Reveal information, increase tension, create opportunities, react to player-facing facts, and reinforce world consistency.
+You are NOT allowed to decide player actions, resolve mysteries early, force outcomes, create state changes, skip investigation, or invent lore that contradicts the Story Bible.
+${playerAgencyRule}
+${originalStoryRule}
+${activeStory.runtime.narrationStyleRule}
+---
+
+--- ANTI-RAILROADING RULES ---
+Never create a scene with only one viable action. Every scene must contain information, uncertainty, and opportunity.
+Do not make the player choose one correct path; preserve multiple meaningful approaches.
+---
+
+Return only valid JSON matching this exact schema. No markdown fences. No extra fields:
+{
+  "summary": "visible scene prose, 120-180 words, no player mind reading",
+  "visibleFacts": ["external facts visible in the scene"],
+  "discoveries": ["discoveries planned above, phrased as uncertain if not confirmed"],
+  "opportunities": ["openings the player may act on"],
+  "npcMentions": ["NPC names present or referenced"],
+  "mood": "atmosphere and tension",
+  "generatedChoices": [{ "intentId": "one planner-approved id", "label": "matching or lightly improved label", "presentationHint": "optional hint" }]
+}
+
+Forbidden: inventory changes, flags, quests, locations, reputation, relationships, unlocks, victory, defeat, new NPCs, new exits, future spoilers, and player thoughts or feelings.`
+}
+
+function buildStructuredResolutionPrompt(state: CampaignState, event: StoryEvent, choice: StoryChoice, effects: StoryEffect[], memory: MemorySnapshot) {
+  const node = getNode(state.currentNodeId)
+
+  return `${formatStoryBibleForPrompt(storyBible)}
+
+--- CURRENT STATE ---
+Current place: ${node.publicName}
+Current scene: ${event.name}
+Player character:
+${formatPlayerSheet(state.player)}
+Tension: ${state.simulation.tension}/100
+---
+
+${formatMemoryForPrompt(memory)}
+
+--- SELECTED PLAYER CHOICE ---
+Label: ${choice.label}
+Mode: ${choice.mode}
+Neutral summary: ${choice.neutralSummary}
+Writer intent: ${choice.writerIntent}
+Action prompt: ${choice.actionPrompt}
+Relevant selected-protagonist skill color: ${getApplicableChoiceSkillTags(choice, state.player).join(', ') || 'none'}
+---
+
+--- DETERMINISTIC EFFECTS ALREADY DECIDED BY CODE ---
+${effects.length > 0 ? effects.map(describeEffect).join('\n') : 'No mechanical state change.'}
+Only these effects may be described if visibly relevant. Do not add any other state change.
+---
+
+Return only valid JSON matching this exact schema. No markdown fences. No extra fields:
+{
+  "summary": "visible resolution prose, 120-180 words, no player mind reading",
+  "visibleFacts": ["external facts visible after the action"],
+  "discoveries": ["only discoveries justified by deterministic effects or existing memory"],
+  "opportunities": ["remaining openings, if any"],
+  "npcMentions": ["NPC names present or referenced"],
+  "mood": "atmosphere and consequence",
+  "generatedChoices": [{ "intentId": "continue", "label": "Continue", "presentationHint": "The scene resolves." }]
+}
+
+Rules:
+- Resolve only the selected option.
+- Do not write exact dialogue for the player character.
+- ${playerAgencyRule}
+- Do not invent inventory, map, victory, loss, relationship, reputation, quest, or flag changes.
+- ${originalStoryRule}`
+}
+
+function generatedSceneToText(scene: GeneratedScene) {
+  return [
+    scene.summary,
+    scene.visibleFacts.length > 0 ? `Visible facts: ${scene.visibleFacts.join(' ')}` : '',
+    scene.discoveries.length > 0 ? `Discoveries: ${scene.discoveries.join(' ')}` : '',
+    scene.opportunities.length > 0 ? `Opportunities: ${scene.opportunities.join(' ')}` : '',
+    scene.mood,
+  ].filter(Boolean).join('\n\n')
+}
+
+function formatValidationReport(result: SceneValidationResult) {
+  return [
+    result.ok ? 'Scene JSON accepted.' : 'Scene JSON rejected; fallback used.',
+    result.repaired ? 'JSON was repaired/extracted before validation.' : '',
+    result.errors.length > 0 ? `Errors:\n${result.errors.join('\n')}` : '',
+    result.warnings.length > 0 ? `Warnings:\n${result.warnings.join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
 }
 
 function buildNpcResponsePrompt(state: CampaignState, event: StoryEvent, npc: StoryNpc, choice: StoryChoice, resolutionText: string) {
@@ -2801,10 +3081,9 @@ function App() {
     try {
       await assertLocalModelAvailable(llmSettings)
 
-      const drawn = stateAtStart.currentEvent
-        ? { event: stateAtStart.currentEvent, rngState: stateAtStart.runProfile.rngState }
-        : drawStoryEvent(stateAtStart)
-      const event = drawn.event
+      const planned = planNextScene(stateAtStart)
+      const event = planned.event
+      const plan = planned.plan
       const node = getNode(stateAtStart.currentNodeId)
       const nodeCanonicalFacts = setCanonicalFact(stateAtStart.canonicalFacts, node.publicName, node.canonicalDescription)
       const { storyNpcs, canonicalFacts } = getOrCreateEventNpc({ ...stateAtStart, canonicalFacts: nodeCanonicalFacts }, event)
@@ -2812,12 +3091,21 @@ function App() {
         ...stateAtStart,
         runProfile: {
           ...stateAtStart.runProfile,
-          rngState: drawn.rngState,
+          rngState: planned.rngState,
         },
         currentEvent: event,
+        currentScenePlan: plan,
         sceneOpened: true,
         storyNpcs,
         canonicalFacts,
+        simulation: {
+          ...stateAtStart.simulation,
+          tension: plan.tension,
+          director: {
+            ...stateAtStart.simulation.director,
+            currentTension: plan.tension,
+          },
+        },
         eventHistory: stateAtStart.eventHistory.some((seenEvent) => seenEvent.id === event.id) ? stateAtStart.eventHistory : [...stateAtStart.eventHistory, event].slice(-20),
       }
       const feedEntries = leadingFeedEntries.map((entry) => ({ id: createId(entry.kind), ...entry }))
@@ -2837,14 +3125,22 @@ function App() {
       }))
       scrollStoryToEnd('smooth')
 
-      const prompt = buildSceneOpeningPrompt(sceneState, event)
-      appendDebugEntry({ label: 'Scene opening prompt', text: prompt })
-      const varietyWarnings = getChoiceVarietyWarnings(event)
-      if (varietyWarnings.length > 0) {
-        appendDebugEntry({ label: 'Choice variety warnings', text: varietyWarnings.join('\n') })
+      appendDebugEntry({ label: 'Director output', text: JSON.stringify(planned.director, null, 2) })
+      appendDebugEntry({ label: 'Scene plan', text: JSON.stringify(plan, null, 2) })
+      const choiceWarnings = [...plan.warnings, ...getChoiceVarietyWarnings(event)]
+      if (choiceWarnings.length > 0) {
+        appendDebugEntry({ label: 'Choice mix warnings', text: choiceWarnings.join('\n') })
       }
 
-      const openingText = await streamFeedEntry(currentNarratorEntryId, prompt)
+      const prompt = buildStructuredScenePrompt(sceneState, plan, planned.memory)
+      appendDebugEntry({ label: 'Structured scene prompt', text: prompt })
+      appendDebugEntry({ label: 'Legacy scene prompt (superseded)', text: buildSceneOpeningPrompt(sceneState, event) })
+      const fallbackScene = buildFallbackScene({ plan, currentPlace: node.publicName })
+      const rawSceneJson = await streamLocalText(llmSettings, prompt, () => {})
+      const validation = parseGeneratedSceneJson(rawSceneJson, fallbackScene, plan.choiceIntents.map((choice) => choice.id))
+      appendDebugEntry({ label: 'Scene JSON validation', text: formatValidationReport(validation) })
+      const openingText = generatedSceneToText(validation.scene)
+      updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, text: openingText, generatedText: openingText }))
       appendDirectionLintWarning(sceneState, openingText, 'Scene opening')
       rememberLocationCanonicalFact(node, openingText)
       updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
@@ -2895,6 +3191,7 @@ function App() {
       ...campaign,
       currentNodeId: nodeId,
       currentEvent: undefined,
+      currentScenePlan: undefined,
       sceneOpened: false,
       exploredNodeIds: wasExplored ? campaign.exploredNodeIds : [...campaign.exploredNodeIds, nodeId],
       storyNpcs: campaign.storyNpcs.map((npc) => ({ ...npc, currentNodeId: nodeId })),
@@ -2939,7 +3236,9 @@ function App() {
       }
       const node = getNode(stateAtStart.currentNodeId)
       const sceneNpc = event.npcTemplate ? stateAtStart.storyNpcs.find((npc) => npc.id === event.npcTemplate?.id) : undefined
-      const effects = choice.effects ?? []
+      const plan = stateAtStart.currentScenePlan
+      const effects = plan?.deterministicEffectsByChoiceId[choice.intentId ?? choice.id] ?? choice.effects ?? []
+      const simulationUpdate = plan?.simulationUpdatesByChoiceId[choice.intentId ?? choice.id]
 
       appendFeedEntry({
         kind: 'selected',
@@ -2953,10 +3252,17 @@ function App() {
         text: `${choice.label}\nMode: ${choice.mode}\nRelevant selected-protagonist skill tags: ${getApplicableChoiceSkillTags(choice, stateAtStart.player).join(', ') || 'none'}\nAuthored choice tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
       })
 
-      const resolutionPrompt = buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects)
-      appendDebugEntry({ label: 'Resolution prompt', text: resolutionPrompt })
+      const memory = buildCampaignMemorySnapshot(stateAtStart)
+      const resolutionPrompt = buildStructuredResolutionPrompt(stateAtStart, event, choice, effects, memory)
+      appendDebugEntry({ label: 'Structured resolution prompt', text: resolutionPrompt })
+      appendDebugEntry({ label: 'Legacy resolution prompt (superseded)', text: buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects) })
       const resolutionEntryId = appendFeedEntry({ kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
-      const resolutionText = await streamFeedEntry(resolutionEntryId, resolutionPrompt)
+      const fallbackResolution = buildFallbackResolution({ label: choice.label, neutralSummary: choice.neutralSummary, effects })
+      const rawResolutionJson = await streamLocalText(llmSettings, resolutionPrompt, () => {})
+      const resolutionValidation = parseGeneratedSceneJson(rawResolutionJson, fallbackResolution, ['continue'])
+      appendDebugEntry({ label: 'Resolution JSON validation', text: formatValidationReport(resolutionValidation) })
+      const resolutionText = generatedSceneToText(resolutionValidation.scene)
+      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, text: resolutionText, generatedText: resolutionText }))
       appendDirectionLintWarning(stateAtStart, resolutionText, 'Choice resolution')
       updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: getEffectBadges(effects), streaming: false }))
 
@@ -2983,6 +3289,7 @@ function App() {
       }
 
       const appliedState = applyStoryEffects({ ...stateAtStart, player: { ...stateAtStart.player, condition: updatedCondition }, storyNpcs: updatedStoryNpcs }, effects)
+      const appliedSimulation = applySimulationUpdate(appliedState.simulation, simulationUpdate, plan?.sceneType)
       const outcome: CampaignState['outcome'] = appliedState.outcome
 
       setSelectedNodeId(appliedState.currentNodeId)
@@ -2996,11 +3303,16 @@ function App() {
         debugFeed: state.debugFeed,
         storyNpcs: appliedState.storyNpcs.map((npc) => ({ ...npc, currentNodeId: appliedState.currentNodeId })),
         currentEvent: undefined,
+        currentScenePlan: undefined,
         sceneOpened: false,
+        simulation: appliedSimulation,
         outcome,
       }))
 
       appendDebugEntry({ label: 'Applied effects', text: effects.map(describeEffect).join('\n') || 'No mechanical effects.' })
+      if (simulationUpdate) {
+        appendDebugEntry({ label: 'Applied simulation update', text: JSON.stringify(simulationUpdate, null, 2) })
+      }
 
       if (outcome !== 'running') {
         const outcomeText = outcome === 'won' ? activeStory.runtime.outcomeFeedText.won : activeStory.runtime.outcomeFeedText.lost

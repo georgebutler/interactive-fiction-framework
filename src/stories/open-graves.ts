@@ -1,4 +1,5 @@
 import type { CodexReference, InventoryItem, SkillTag, SkillTagDefinition, StoryBundle, StoryIconId, StorySchema } from '@/framework/schema'
+import type { StoryBible } from '@/framework/story-bible'
 
 const codexTermTargets: Record<string, Pick<CodexReference, 'type' | 'targetId'>> = {
   Redvale: { type: 'place', targetId: 'ash-farms' },
@@ -912,6 +913,130 @@ const storySchema: StorySchema = {
   ],
 }
 
+const openGravesBible: StoryBible = {
+  themes: [
+    'names turned into numbers by royal power',
+    'command as a form of violence that can outlive the commander',
+    'burial custom as testimony and resistance',
+    'proof that forces a court to stop generalizing the dead',
+  ],
+  tone: [
+    'grounded medieval hardship',
+    'plain speech under social pressure',
+    'grave-cold atmosphere without gothic excess',
+    'practical fear rather than heroic certainty',
+  ],
+  worldRules: storySchema.fixedRules,
+  narrativeLaws: [
+    'The Story Bible outranks generated prose, scene plans, and transient atmosphere.',
+    'The LLM may reveal information, pressure, opportunity, dialogue, and mood, but may not create durable state.',
+    'Every scene must contain information, uncertainty, and more than one meaningful approach.',
+    'Future mysteries must not be resolved before deterministic effects or discovered clues justify them.',
+  ],
+  factions: [
+    {
+      id: 'graymere-court',
+      name: 'Graymere Court',
+      publicFace: 'Royal order, polished ceremony, and official courage.',
+      privatePressure: 'The court wants the dead converted into a manageable public cost.',
+      reputation: 0,
+    },
+    {
+      id: 'redvale-villagers',
+      name: 'Redvale villagers',
+      publicFace: 'Farmers, grave-tenders, millers, and families trying to survive opened graves.',
+      privatePressure: 'They need help but distrust any command carrying royal wax.',
+      reputation: 0,
+    },
+    {
+      id: 'blackpine-deserters',
+      name: 'Blackpine deserters',
+      publicFace: 'Hungry soldiers pretending toll-taking is strategy.',
+      privatePressure: 'They fear old commands because they know how men can be spent by them.',
+      reputation: 0,
+    },
+    {
+      id: 'burial-custom',
+      name: 'Burial custom keepers',
+      publicFace: 'Priests, grave-tenders, hermits, and old marks that remember proper rest.',
+      privatePressure: 'Names, bells, rites, and proof must keep the living from erasing the dead.',
+      reputation: 0,
+    },
+  ],
+  locations: storySchema.nodes.map((node) => ({
+    id: node.id,
+    name: node.publicName,
+    summary: node.canonicalDescription ?? node.description,
+    rules: node.exits.map((exit) => `Connected to ${exit.toNodeId}${exit.blocker ? ` unless blocked: ${exit.blocker.reason}` : ''}`),
+  })),
+  characters: [
+    ...storySchema.players.map((player) => ({
+      id: player.id,
+      name: `${player.firstName} ${player.lastName}`,
+      role: player.role,
+      wants: [player.backstory.want],
+      fears: [player.voice.fear],
+      knows: [player.backstory.privateKnowledge],
+    })),
+    ...storySchema.events
+      .map((event) => event.npcTemplate)
+      .filter((npc): npc is NonNullable<(typeof storySchema.events)[number]['npcTemplate']> => Boolean(npc))
+      .map((npc) => ({
+        id: npc.id,
+        name: npc.name,
+        role: npc.role,
+        wants: [npc.want],
+        knows: [npc.knows],
+      })),
+  ],
+  threats: [
+    {
+      id: 'opened-graves',
+      name: 'Opened graves',
+      pressure: 'The dead rise where burial order has been broken and public language tries to soften the cost.',
+      signs: ['fresh graves opening', 'cold mist clinging to disturbed royal dead', 'bells heard beneath the hill'],
+    },
+    {
+      id: 'dead-in-formation',
+      name: 'The dead moving in formation',
+      pressure: 'The dead reveal a command behind them when their bodies arrange like drilled soldiers.',
+      signs: ['ranked movement', 'royal colors among corpses', 'old commands seeming to pull bodies upright'],
+    },
+    {
+      id: 'court-erasure',
+      name: 'Court erasure',
+      pressure: 'Graymere Hall will turn dead people into service, numbers, and clean phrases unless proof stays specific.',
+      signs: ['misspelled names', 'formal evasions', 'reward offered before witness'],
+    },
+  ],
+  mysteries: [
+    {
+      id: 'missing-clapper',
+      question: 'Why does the burial bell under the hill lack its clapper?',
+      knownClues: ['Old Perrin says the dead began walking after someone stole from a burial bell.', 'The bell-ringer was buried without his clapper.'],
+      resolvedBy: 'restore-bell-and-break-charm',
+    },
+    {
+      id: 'bone-token',
+      question: 'What proof does the fingerbone token carry?',
+      knownClues: ['A fingerbone token lies near the silver burial bell.', 'The Bone Token may prove someone has been using the dead.'],
+      resolvedBy: 'proof-delivered',
+    },
+    {
+      id: 'royal-dead',
+      question: 'Why are corpses in royal colors among the walking dead?',
+      knownClues: ['Miller Joan saw a corpse in royal colors among the dead from the east.', 'The royal dead may be walking first because old commands still cling to them.'],
+      resolvedBy: 'name-royal-dead-before-court',
+    },
+  ],
+  narrativePatterns: [
+    { id: 'false_lead', purpose: 'misdirect', instruction: 'Let a clue look complete while leaving its cause uncertain.' },
+    { id: 'unexpected_witness', purpose: 'reveal information', instruction: 'Let a witness or trace reveal one concrete piece of the investigation.' },
+    { id: 'costly_success', purpose: 'increase tension', instruction: 'Let progress remain possible while showing its cost.' },
+    { id: 'hidden_connection', purpose: 'link mysteries', instruction: 'Connect known clues without explaining the whole command behind the dead.' },
+  ],
+}
+
 export const openGravesStory = {
   schema: storySchema,
   iconAssets: storyIconAssets,
@@ -935,5 +1060,8 @@ export const openGravesStory = {
       lost: 'The road can go no farther. Somewhere ahead, the dead keep walking under orders no living mouth will admit giving.',
     },
     narrationStyleRule: 'For texture, favor grounded medieval hardship, plain names, practical social friction, and simple burial customs; do not copy or evoke any specific external work.',
+  },
+  vNext: {
+    bible: openGravesBible,
   },
 } satisfies StoryBundle
