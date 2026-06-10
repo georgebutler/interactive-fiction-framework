@@ -2467,7 +2467,7 @@ function StorySelectionScreen({
                     key={player.id}
                     type="button"
                     aria-pressed={selected}
-                    className="flex gap-3 border border-[var(--color-border)] bg-background p-4 text-left transition-colors hover:bg-muted aria-pressed:border-foreground aria-pressed:bg-muted"
+                    className="flex gap-3 border border-[var(--color-border)] bg-background p-4 text-left transition-colors hover:bg-muted aria-pressed:border-[var(--color-border-strong)] aria-pressed:bg-muted"
                     onClick={() => onSelectPlayer(player.id)}
                   >
                     <img src={player.portraitAsset} alt="" className="h-24 w-16 shrink-0 border border-[var(--color-border)] object-cover" />
