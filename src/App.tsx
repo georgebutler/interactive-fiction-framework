@@ -3001,6 +3001,7 @@ function App() {
     setPendingRetry(undefined)
     setActiveMainTab('story')
     setAppPhase('playing')
+    scrollStoryToEnd('auto')
   }
 
   if (appPhase === 'story-select') {
