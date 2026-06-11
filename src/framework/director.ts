@@ -103,8 +103,8 @@ export function chooseDirectorBeat(input: DirectorInput): DirectorOutput {
 
   const mysteryPressure = input.bible.mysteries.find((mystery) => !input.directorState.mysteriesResolved.includes(mystery.id))
   const purpose = event
-    ? `${event.prompt} Director purpose: ${sceneType} scene that ${pattern.purpose}${mysteryPressure ? ` while keeping pressure on ${mysteryPressure.question}` : ''}.`
-    : `Create a ${sceneType} scene at ${input.currentNode.publicName} that ${pattern.purpose}.`
+    ? `${sceneType} scene that ${pattern.purpose}${mysteryPressure ? ` while keeping pressure on ${mysteryPressure.question}` : ''}.`
+    : `${sceneType} scene at ${input.currentNode.publicName} that ${pattern.purpose}.`
 
   return {
     sceneType,

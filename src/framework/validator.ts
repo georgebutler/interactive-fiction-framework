@@ -32,6 +32,23 @@ const forbiddenKeys = ['effect', 'effects', 'flags', 'inventory', 'itemsGained',
 const mutationClaims = [/\byou obtain\b/i, /\byou gain\b/i, /\byou lose\b/i, /\badded to your inventory\b/i, /\bthe flag\b/i, /\byou travel to\b/i, /\byou arrive at\b/i]
 const mindReadingClaims = [/\byou realize\b/i, /\byou decide\b/i, /\byou feel\b/i, /\byou understand\b/i, /\byou know\b/i]
 const spoilerClaims = [/\bwill betray\b/i, /\bwill die\b/i, /\bin the end\b/i, /\blater,?\s+you\b/i]
+const internalAuthoringClaims = [
+  /\bDirector purpose\b/i,
+  /\bdirector goal\b/i,
+  /\bplanner\b/i,
+  /\bdebug\b/i,
+  /\bdiagnostic\b/i,
+  /\bschema\b/i,
+  /\bJSON\b/i,
+  /\bobjective=/i,
+  /\btarget=/i,
+  /\bintentId\b/i,
+  /\bpressure rating\b/i,
+  /\bhidden rules?\b/i,
+  /\bwriter guidance\b/i,
+  /\bmechanical effects?\b/i,
+  /\bdeterministic effects?\b/i,
+]
 
 function stripFences(raw: string) {
   return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
@@ -40,13 +57,44 @@ function stripFences(raw: string) {
 function extractFirstJsonObject(raw: string) {
   const text = stripFences(raw)
   const firstBrace = text.indexOf('{')
-  const lastBrace = text.lastIndexOf('}')
 
-  if (firstBrace < 0 || lastBrace <= firstBrace) {
+  if (firstBrace < 0) {
     return text
   }
 
-  return text.slice(firstBrace, lastBrace + 1)
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = firstBrace; index < text.length; index += 1) {
+    const character = text[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === '"') {
+        inString = false
+      }
+
+      continue
+    }
+
+    if (character === '"') {
+      inString = true
+    } else if (character === '{') {
+      depth += 1
+    } else if (character === '}') {
+      depth -= 1
+
+      if (depth === 0) {
+        return text.slice(firstBrace, index + 1)
+      }
+    }
+  }
+
+  return text
 }
 
 function collectObjectKeys(value: unknown): string[] {
@@ -66,14 +114,17 @@ function sceneText(scene: GeneratedScene) {
 }
 
 export function buildFallbackScene(input: { plan: ProceduralScenePlan; currentPlace: string }): GeneratedScene {
+  const firstComplication = input.plan.complications[0]
+  const firstDiscovery = input.plan.discoveries[0]
+
   return {
-    summary: `${input.currentPlace} holds its pressure close. ${input.plan.objective}`,
+    summary: `${input.currentPlace} does not offer a clean answer. The scene settles into visible details, competing interpretations, and one practical opening forward.`,
     visibleFacts: input.plan.complications.slice(0, 2),
     discoveries: input.plan.discoveries.slice(0, 2),
     opportunities: [input.plan.opportunity],
     npcMentions: input.plan.involvedNpcIds,
-    mood: 'The room holds its breath around the next visible opening.',
-    generatedChoices: input.plan.choiceIntents.slice(0, 4).map((choice) => ({ intentId: choice.id, label: choice.label, presentationHint: choice.objective })),
+    mood: firstComplication || firstDiscovery ? 'Every answer in reach still leaves another witness, record, or wound resisting it.' : 'The next move matters because no single explanation owns the room yet.',
+    generatedChoices: input.plan.choiceIntents.slice(0, 4).map((choice) => ({ intentId: choice.id, label: choice.label, presentationHint: 'This remains one visible way to press the scene.' })),
   }
 }
 
@@ -83,18 +134,18 @@ function isPassiveChoice(choice: Pick<StoryChoice, 'mode' | 'displayStyle'>) {
 
 function fallbackResolutionSummary(input: { choice: Pick<StoryChoice, 'label' | 'mode' | 'displayStyle'>; currentPlace: string }) {
   if (isPassiveChoice(input.choice)) {
-    return `At ${input.currentPlace}, you hold still and let the scene keep speaking through movement, spacing, and silence. No hidden answer declares itself, but the visible pressure remains available to act on.`
+    return `At ${input.currentPlace}, stillness gives the room time to show its seams. No hidden answer declares itself, but the visible details keep refusing a single clean reading.`
   }
 
   if (input.choice.mode === 'ask' || input.choice.mode === 'say') {
-    return `At ${input.currentPlace}, the words land inside the scene's existing pressure. The moment answers only through what can be seen and heard here.`
+    return `At ${input.currentPlace}, the words land where records, memory, and fear already disagree. The answer comes through faces, silences, and what people choose not to simplify.`
   }
 
   if (input.choice.mode === 'risk') {
-    return `At ${input.currentPlace}, the risky move presses against the scene's pressure without breaking it open. The immediate result stays visible, limited, and ready for the next move.`
+    return `At ${input.currentPlace}, the risky move makes the argument sharper without making it final. What changes is visible enough to follow, but not clean enough to settle the graves.`
   }
 
-  return `At ${input.currentPlace}, the action plays out against the scene's existing pressure. Its immediate result stays visible, limited, and ready for the next move.`
+  return `At ${input.currentPlace}, the action changes what can be seen and argued over. The result is concrete, but it still leaves room for more than one truth to survive.`
 }
 
 function fallbackVisibleFactForEffect(effect: StoryEffect) {
@@ -161,6 +212,12 @@ export function validateScene(scene: GeneratedScene, allowedChoiceIds: string[],
   for (const pattern of spoilerClaims) {
     if (pattern.test(text)) {
       errors.push(`Potential future spoiler found: ${pattern.source}`)
+    }
+  }
+
+  for (const pattern of internalAuthoringClaims) {
+    if (pattern.test(text)) {
+      errors.push(`Internal authoring text found in player-facing output: ${pattern.source}`)
     }
   }
 

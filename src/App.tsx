@@ -33,6 +33,7 @@ type FeedEntry = {
   nodeId?: string
   eventId?: string
   streaming?: boolean
+  statusText?: string
   consequenceBadges?: string[]
   retryAction?: 'begin-scene' | 'choose-action'
 }
@@ -112,10 +113,11 @@ type LlmModelPreset = {
 }
 
 type AppPhase = 'story-select' | 'protagonist-intro' | 'playing'
-type MainTab = 'story' | 'map' | 'character'
+type MainTab = 'story' | 'map' | 'character' | 'settings'
 type ResolvedThemeMode = 'light' | 'dark'
 type ThemeMode = ResolvedThemeMode | 'system'
 type OllamaStatus = 'checking' | 'connected' | 'unreachable'
+type GenerationStage = 'checking-model' | 'planning-scene' | 'writing-passage' | 'validating-passage'
 
 const activeStory = defaultStory
 const storySchema = activeStory.schema
@@ -501,10 +503,16 @@ async function assertLocalModelAvailable(settings: LlmSettings) {
   }
 }
 
-async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (chunk: string) => void | Promise<void>) {
+async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (chunk: string) => void | Promise<void>, options: { timeoutMs?: number } = {}) {
+  const timeoutMs = options.timeoutMs ?? 45000
+  const abortController = new AbortController()
+  const timeoutId = window.setTimeout(() => abortController.abort(), timeoutMs)
+
+  try {
   const response = await fetch(normalizeOllamaGenerateEndpoint(settings.endpoint), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: abortController.signal,
     body: JSON.stringify({
       model: settings.model,
       prompt,
@@ -581,6 +589,15 @@ async function streamLocalText(settings: LlmSettings, prompt: string, onChunk: (
   }
 
   return fullText.trim()
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('The local narrator took too long to answer. Check that Ollama is responsive, adjust generation settings if needed, then retry.', { cause: error })
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 }
 
 function weightedChoice<T>(items: T[], getWeight: (item: T) => number, randomValue: number) {
@@ -668,7 +685,7 @@ function planNextScene(state: CampaignState) {
   const event: StoryEvent = {
     ...adaptedEvent,
     source: 'procedural-adapter',
-    prompt: plan.objective,
+    prompt: adaptedEvent.prompt || plan.opportunity,
     choices: plan.choiceIntents.map(choiceIntentToStoryChoice),
   }
 
@@ -1110,6 +1127,27 @@ function formatPressureForPrompt(tension: number) {
   }
 
   return 'low'
+}
+
+function getGenerationStageText(stage?: GenerationStage) {
+  if (stage === 'checking-model') return 'Checking the local narrator…'
+  if (stage === 'planning-scene') return 'Planning the scene…'
+  if (stage === 'writing-passage') return 'Writing the passage…'
+  if (stage === 'validating-passage') return 'Validating the passage…'
+  return 'The narrator is thinking…'
+}
+
+function getOllamaStatusLabel(status: OllamaStatus, availableModels: string[], model: string) {
+  if (status === 'checking') return 'Checking local narrator…'
+  if (status === 'unreachable') return 'Local narrator unreachable'
+  if (availableModels.length === 0) return 'Ollama running, no models installed'
+  return `Local narrator ready · ${model}`
+}
+
+function getOllamaStatusTone(status: OllamaStatus, availableModels: string[]): 'ready' | 'checking' | 'unavailable' {
+  if (status === 'connected' && availableModels.length > 0) return 'ready'
+  if (status === 'checking') return 'checking'
+  return 'unavailable'
 }
 
 function escapeRegExp(value: string) {
@@ -1593,7 +1631,12 @@ Rules:
 
 function buildStructuredScenePrompt(state: CampaignState, plan: ProceduralScenePlan, memory: MemorySnapshot) {
   const node = getNode(state.currentNodeId)
-  const choices = plan.choiceIntents.map((choice) => `- ${choice.id}: ${choice.label} [${choice.category}] target=${choice.target}; objective=${choice.objective}`).join('\n')
+  const choices = plan.choiceIntents.map((choice) => [
+    `- id: ${choice.id}`,
+    `  player label: ${choice.label}`,
+    `  approach: ${choice.category}`,
+    `  private writer note: ${choice.objective}`,
+  ].join('\n')).join('\n')
 
   return `${formatStoryBibleForPrompt(storyBible)}
 
@@ -1612,7 +1655,7 @@ ${formatMemoryForPrompt(memory)}
 
 --- DIRECTOR GOAL ---
 Scene type: ${plan.sceneType}
-Purpose: ${plan.objective}
+Private purpose: ${plan.objective}
 Target pressure: ${formatPressureForPrompt(plan.tension)}
 ---
 
@@ -1655,7 +1698,8 @@ Return only valid JSON matching this exact schema. No markdown fences. No extra 
   "generatedChoices": [{ "intentId": "one planner-approved id", "label": "matching or lightly improved label", "presentationHint": "optional hint" }]
 }
 
-Forbidden: inventory changes, flags, quests, locations, reputation, relationships, unlocks, victory, defeat, new NPCs, new exits, future spoilers, and player thoughts or feelings.`
+Forbidden: inventory changes, flags, quests, locations, reputation, relationships, unlocks, victory, defeat, new NPCs, new exits, future spoilers, and player thoughts or feelings.
+Never copy private section headings, ids, writer notes, objectives, targets, diagnostics, director/planner language, schema terms, or JSON terminology into summary, visibleFacts, discoveries, opportunities, mood, generatedChoices.label, or generatedChoices.presentationHint.`
 }
 
 function buildStructuredResolutionPrompt(state: CampaignState, event: StoryEvent, choice: StoryChoice, effects: StoryEffect[], memory: MemorySnapshot) {
@@ -1705,28 +1749,37 @@ Rules:
 - ${playerAgencyRule}
 - Do not invent inventory, map, victory, loss, relationship, reputation, quest, or flag changes.
 - Never mention private writing constraints, hidden rules, hidden flags, diagnostics, or pressure ratings in player-facing fields.
+- Never copy private section headings, ids, writer notes, objectives, targets, diagnostics, director/planner language, schema terms, or JSON terminology into player-facing fields.
 - ${originalStoryRule}`
 }
 
 function generatedSceneToText(scene: GeneratedScene) {
+  const summary = isPlayerFacingGeneratedLine(scene.summary) ? scene.summary : ''
+  const visibleFacts = scene.visibleFacts.filter(isPlayerFacingGeneratedLine)
+  const discoveries = scene.discoveries.filter(isPlayerFacingGeneratedLine)
+  const opportunities = scene.opportunities.filter(isPlayerFacingGeneratedLine)
   const mood = isPlayerFacingGeneratedLine(scene.mood) ? scene.mood : ''
 
   return [
-    scene.summary,
-    scene.visibleFacts.length > 0 ? `Visible facts: ${scene.visibleFacts.join(' ')}` : '',
-    scene.discoveries.length > 0 ? `Discoveries: ${scene.discoveries.join(' ')}` : '',
-    scene.opportunities.length > 0 ? `Opportunities: ${scene.opportunities.join(' ')}` : '',
+    summary,
+    visibleFacts.join(' '),
+    discoveries.join(' '),
+    opportunities.join(' '),
     mood,
   ].filter(Boolean).join('\n\n')
 }
 
+function containsInternalAuthoringText(text: string) {
+  return /\b(?:Tension\s+\d+\/100|mechanical state|deterministic effects?|explicitly allowed|code has|JSON|schema|debug|Director purpose|director goal|planner|diagnostic|objective=|target=|intentId|pressure rating|hidden rules?|writer guidance|mechanical effects?)\b/i.test(text)
+}
+
 function isPlayerFacingGeneratedLine(text: string) {
-  return !/\b(?:Tension\s+\d+\/100|mechanical state|deterministic effects?|explicitly allowed|code has|JSON|schema|debug)\b/i.test(text)
+  return text.trim().length > 0 && !containsInternalAuthoringText(text)
 }
 
 function formatValidationReport(result: SceneValidationResult) {
   return [
-    result.ok ? 'Scene JSON accepted.' : 'Scene JSON rejected; fallback used.',
+    result.ok ? 'Scene JSON accepted.' : 'Scene JSON rejected after model response; validator fallback used.',
     result.repaired ? 'JSON was repaired/extracted before validation.' : '',
     result.errors.length > 0 ? `Errors:\n${result.errors.join('\n')}` : '',
     result.warnings.length > 0 ? `Warnings:\n${result.warnings.join('\n')}` : '',
@@ -1976,7 +2029,7 @@ function FeedBlock({
       ) : null}
       {entry.kind !== 'system' ? (
         <div className={blockClassName}>
-            {isThinking ? <ThinkingIndicator /> : null}
+            {isThinking ? <ThinkingIndicator statusText={entry.statusText} /> : null}
             {renderedLines.map((line, index) => {
               const styledLine = getVisualNovelLineStyle(line)
               const speakerMatch = styledLine.text.match(/^([^:]{2,32}):\s*(.+)$/)
@@ -2011,9 +2064,11 @@ function FeedBlock({
   )
 }
 
-function ThinkingIndicator() {
+function ThinkingIndicator({ statusText }: { statusText?: string }) {
+  const label = statusText ?? 'The narrator is thinking…'
+
   return (
-    <div className="flex items-center gap-3 py-2 text-[var(--color-text-muted)]" aria-live="polite" aria-label="The narrator is thinking">
+    <div className="flex items-center gap-3 py-2 text-[var(--color-text-muted)]" aria-live="polite" aria-label={label}>
       <span className="relative inline-flex size-8 items-center justify-center" aria-hidden="true">
         <span className="absolute inset-0 rounded-full border border-[var(--color-accent)] opacity-30 animate-ping" />
         <span className="relative inline-flex size-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-raised)]">
@@ -2025,6 +2080,7 @@ function ThinkingIndicator() {
         <span className="size-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce [animation-delay:-0.1s]" />
         <span className="size-1.5 rounded-full bg-[var(--color-text-muted)] animate-bounce" />
       </span>
+      <span className="font-serif text-sm leading-5">{label}</span>
     </div>
   )
 }
@@ -2508,6 +2564,7 @@ function MapLocationDetails({
 function ChoicePanel({
   state,
   isAdvancing,
+  generationStage,
   confirmingChoiceId,
   onCancelConfirm,
   onBeginScene,
@@ -2515,6 +2572,7 @@ function ChoicePanel({
 }: {
   state: CampaignState
   isAdvancing: boolean
+  generationStage?: GenerationStage
   confirmingChoiceId?: string
   onCancelConfirm: () => void
   onBeginScene: () => void
@@ -2541,7 +2599,7 @@ function ChoicePanel({
     return (
       <Card className="iff-chrome-panel">
         <CardContent>
-          <p className="font-serif text-sm text-muted-foreground">Waiting for narrator…</p>
+          <p className="font-serif text-sm text-muted-foreground">{getGenerationStageText(generationStage)}</p>
         </CardContent>
       </Card>
     )
@@ -2615,7 +2673,7 @@ function ChoicePanel({
             </button>
           )
         })}
-        {isAdvancing ? <p className="font-sans text-xs text-muted-foreground">Waiting for narrator…</p> : null}
+        {isAdvancing ? <p className="font-sans text-xs text-muted-foreground">{getGenerationStageText(generationStage)}</p> : null}
       </CardContent>
     </Card>
   )
@@ -2811,11 +2869,17 @@ function DebugPanel({ entries }: { entries: DebugEntry[] }) {
 function StorySelectionScreen({
   players,
   selectedPlayerId,
+  narratorStatus,
+  narratorHint,
+  onRetryNarrator,
   onSelectPlayer,
   onSelect,
 }: {
   players: PlayableCharacter[]
   selectedPlayerId: string
+  narratorStatus: { label: string; tone: 'ready' | 'checking' | 'unavailable' }
+  narratorHint?: string
+  onRetryNarrator: () => void
   onSelectPlayer: (playerId: string) => void
   onSelect: () => void
 }) {
@@ -2828,6 +2892,7 @@ function StorySelectionScreen({
           <CardDescription className="font-serif text-base leading-7">{storySchema.premise}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <LocalNarratorSetupStatus status={narratorStatus} hint={narratorHint} onRetry={onRetryNarrator} />
           <div>
             <p className="ui-label">Choose a protagonist</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -2886,7 +2951,7 @@ function StorySelectionScreen({
             </div>
           </div>
           <Button type="button" size="lg" onClick={onSelect}>
-            Select
+            Continue as {players.find((player) => player.id === selectedPlayerId)?.firstName ?? 'protagonist'}
           </Button>
         </CardContent>
       </Card>
@@ -2894,7 +2959,37 @@ function StorySelectionScreen({
   )
 }
 
-function ProtagonistIntroScreen({ player, onBegin }: { player: PlayableCharacter; onBegin: () => void }) {
+function LocalNarratorSetupStatus({
+  status,
+  hint,
+  onRetry,
+}: {
+  status: { label: string; tone: 'ready' | 'checking' | 'unavailable' }
+  hint?: string
+  onRetry: () => void
+}) {
+  const dotClass = status.tone === 'ready' ? 'bg-emerald-500' : status.tone === 'checking' ? 'bg-amber-400' : 'bg-red-500'
+
+  return (
+    <section className="border border-[var(--color-border)] bg-[var(--color-surface)] p-3" aria-live="polite">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="ui-label">Local narrator</p>
+          <p className="mt-1 flex items-center gap-2 font-serif text-sm text-foreground">
+            <span className={`size-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
+            <span>{status.label}</span>
+          </p>
+          {hint ? <p className="mt-1 font-serif text-sm leading-5 text-muted-foreground">{hint}</p> : <p className="mt-1 font-serif text-sm leading-5 text-muted-foreground">Generated play requires a working local narrator. If generation fails, the story pauses here so you can fix Ollama or model settings and retry.</p>}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry} disabled={status.tone === 'checking'}>
+          Retry connection
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+function ProtagonistIntroScreen({ player, narratorStatus, narratorHint, onRetryNarrator, onBegin }: { player: PlayableCharacter; narratorStatus: { label: string; tone: 'ready' | 'checking' | 'unavailable' }; narratorHint?: string; onRetryNarrator: () => void; onBegin: () => void }) {
   const visibleInventory = player.inventory.filter((item) => item.visible)
 
   return (
@@ -2938,7 +3033,8 @@ function ProtagonistIntroScreen({ player, onBegin }: { player: PlayableCharacter
                 {visibleInventory.map((item) => <Badge key={item.id} variant="outline">{item.name}</Badge>)}
               </div>
             </div>
-            <Button type="button" size="lg" onClick={onBegin}>Begin</Button>
+            <LocalNarratorSetupStatus status={narratorStatus} hint={narratorHint} onRetry={onRetryNarrator} />
+            <Button type="button" size="lg" onClick={onBegin}>Begin Story</Button>
           </div>
         </CardContent>
       </Card>
@@ -2946,10 +3042,20 @@ function ProtagonistIntroScreen({ player, onBegin }: { player: PlayableCharacter
   )
 }
 
-function EndScreen({ state }: { state: CampaignState }) {
+function getEndingResolution(state: CampaignState) {
+  if (state.outcome === 'lost') return storySchema.defeatResolution
+  if (state.flags['wrong-bodies-named']) return 'The court record now names the wrong bodies before it names a culprit. Redvale has not been solved, but the dead are harder to flatten into useful paperwork.'
+  if (state.flags['easy-culprit-refused']) return 'No one dies for evidence that still has six meanings. The court leaves with less certainty than it wanted, and that restraint becomes part of the record.'
+  if (state.flags['famine-records-challenged']) return 'The archive survives by admitting correction. Renwick keeps his ledgers, but the court now knows a record can matter and still wound.'
+  if (state.flags['uncertainty-preserved']) return 'The court record now contains what is known, what is feared, and what cannot yet be proven. Redvale has not been solved, but no faction owns the graves alone.'
+  return storySchema.victoryResolution
+}
+
+function EndScreen({ state, onPlayAgain, onChooseAnother }: { state: CampaignState; onPlayAgain: () => void; onChooseAnother: () => void }) {
   if (state.outcome === 'running') return null
   const won = state.outcome === 'won'
   const choices = state.feed.filter((entry) => entry.kind === 'selected')
+  const resolution = getEndingResolution(state)
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-background/95 p-4 text-foreground">
@@ -2957,9 +3063,19 @@ function EndScreen({ state }: { state: CampaignState }) {
         <CardHeader>
           <p className="ui-label">{won ? 'Victory' : 'Defeat'}</p>
           <CardTitle className="font-[var(--font-display)] text-4xl font-light">{storySchema.title}</CardTitle>
-          <CardDescription className="font-serif text-base leading-7">{won ? storySchema.victoryResolution : storySchema.defeatResolution}</CardDescription>
+          <CardDescription className="font-serif text-base leading-7">{resolution}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={onPlayAgain}>
+              <PlayIcon data-icon="inline-start" />
+              Play again
+            </Button>
+            <Button type="button" variant="outline" onClick={onChooseAnother}>
+              <UserRoundIcon data-icon="inline-start" />
+              Choose another protagonist
+            </Button>
+          </div>
           <details className="border border-[var(--color-border)] bg-background p-4">
             <summary className="cursor-pointer font-sans text-sm font-semibold uppercase tracking-[0.14em]">Review your journey</summary>
             <div className="mt-3 flex flex-col gap-2">
@@ -2969,7 +3085,6 @@ function EndScreen({ state }: { state: CampaignState }) {
               {choices.length === 0 ? <p className="font-serif text-sm text-muted-foreground">No choices recorded yet.</p> : null}
             </div>
           </details>
-          <p className="font-serif text-sm leading-6 text-muted-foreground">Refresh the page to begin again.</p>
         </CardContent>
       </Card>
     </div>
@@ -2988,7 +3103,6 @@ function App() {
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('story')
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>()
   const [travelAnimation, setTravelAnimation] = useState<MapTravelAnimation>()
@@ -2998,6 +3112,8 @@ function App() {
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [llmSetupHint, setLlmSetupHint] = useState<string>()
+  const [connectionCheckNonce, setConnectionCheckNonce] = useState(0)
+  const [generationStage, setGenerationStage] = useState<GenerationStage>()
   const [testConnectionMessage, setTestConnectionMessage] = useState<string>()
   const [pendingRetry, setPendingRetry] = useState<(() => void) | undefined>()
   const [confirmingChoiceId, setConfirmingChoiceId] = useState<string>()
@@ -3068,7 +3184,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId])
+  }, [llmSettings.endpoint, llmSettings.model, llmSettings.presetId, connectionCheckNonce])
 
   const scrollStoryToEnd = (behavior: ScrollBehavior = 'smooth') => {
     requestAnimationFrame(() => {
@@ -3089,25 +3205,6 @@ function App() {
     setCampaign((state) => ({ ...state, feed: [...state.feed, { id, ...entry }] }))
     scrollStoryToEnd('smooth')
     return id
-  }
-
-  const updateFeedEntry = (id: string, updater: (entry: FeedEntry) => FeedEntry) => {
-    setCampaign((state) => ({ ...state, feed: state.feed.map((entry) => (entry.id === id ? updater(entry) : entry)) }))
-    scrollStoryToEnd('auto')
-  }
-
-  const streamFeedEntry = async (entryId: string, prompt: string) => {
-    const appendGeneratedText = (text: string) => {
-      updateFeedEntry(entryId, (entry) => {
-        const generatedText = `${entry.generatedText ?? entry.text}${text}`
-        return { ...entry, generatedText, text: generatedText }
-      })
-    }
-    const fullText = await streamLocalText(llmSettings, prompt, async (chunk) => {
-      appendGeneratedText(chunk)
-    })
-
-    return fullText
   }
 
   const appendDebugEntry = (entry: Omit<DebugEntry, 'id'>) => {
@@ -3152,11 +3249,8 @@ function App() {
     setIsAdvancing(true)
     setLlmError(undefined)
 
-    let narratorEntryId: string | undefined
-
     try {
-      await assertLocalModelAvailable(llmSettings)
-
+      setGenerationStage('planning-scene')
       const planned = planNextScene(stateAtStart)
       const event = planned.event
       const plan = planned.plan
@@ -3184,22 +3278,6 @@ function App() {
         },
         eventHistory: stateAtStart.eventHistory.some((seenEvent) => seenEvent.id === event.id) ? stateAtStart.eventHistory : [...stateAtStart.eventHistory, event].slice(-20),
       }
-      const feedEntries = leadingFeedEntries.map((entry) => ({ id: createId(entry.kind), ...entry }))
-      const currentNarratorEntryId = createId('narration')
-      narratorEntryId = currentNarratorEntryId
-
-      setCampaign((state) => ({
-        ...sceneState,
-        feed: [
-          ...state.feed,
-          ...feedEntries,
-          { id: createId('scene'), kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
-          { id: createId('location'), ...createLocationFeedEntry(node), eventId: event.id },
-          { id: currentNarratorEntryId, kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true },
-        ],
-        debugFeed: state.debugFeed,
-      }))
-      scrollStoryToEnd('smooth')
 
       appendDebugEntry({ label: 'Director output', text: JSON.stringify(planned.director, null, 2) })
       appendDebugEntry({ label: 'Scene plan', text: JSON.stringify(plan, null, 2) })
@@ -3212,25 +3290,42 @@ function App() {
       appendDebugEntry({ label: 'Structured scene prompt', text: prompt })
       appendDebugEntry({ label: 'Legacy scene prompt (superseded)', text: buildSceneOpeningPrompt(sceneState, event) })
       const fallbackScene = buildFallbackScene({ plan, currentPlace: node.publicName })
+
+      setGenerationStage('checking-model')
+      await assertLocalModelAvailable(llmSettings)
+      setGenerationStage('writing-passage')
       const rawSceneJson = await streamLocalText(llmSettings, prompt, () => {})
+      setGenerationStage('validating-passage')
       const validation = parseGeneratedSceneJson(rawSceneJson, fallbackScene, plan.choiceIntents.map((choice) => choice.id))
+
       appendDebugEntry({ label: 'Scene JSON validation', text: formatValidationReport(validation) })
       const openingText = generatedSceneToText(validation.scene)
-      updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, text: openingText, generatedText: openingText }))
+      const narrationText = openingText
+      const feedEntries = leadingFeedEntries.map((entry) => ({ id: createId(entry.kind), ...entry }))
+
+      setCampaign((state) => ({
+        ...sceneState,
+        feed: [
+          ...state.feed,
+          ...feedEntries,
+          { id: createId('scene'), kind: 'system', speaker: 'Scene', nodeId: node.id, eventId: event.id, text: event.name },
+          { id: createId('location'), ...createLocationFeedEntry(node), eventId: event.id },
+          { id: createId('narration'), kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: narrationText, generatedText: narrationText },
+        ],
+        debugFeed: state.debugFeed,
+      }))
+      scrollStoryToEnd('smooth')
       appendDirectionLintWarning(sceneState, openingText, 'Scene opening')
       rememberLocationCanonicalFact(node, openingText)
-      updateFeedEntry(currentNarratorEntryId, (entry) => ({ ...entry, streaming: false }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The local model is not available. Start it before continuing.'
-      if (narratorEntryId) {
-        updateFeedEntry(narratorEntryId, (entry) => ({ ...entry, kind: entry.text ? entry.kind : 'error', text: entry.text || `Narrator unavailable — ${message}`, streaming: false, retryAction: 'begin-scene' }))
-      } else {
-        appendFeedEntry({ kind: 'error', speaker: 'System', nodeId: stateAtStart.currentNodeId, text: `Narrator unavailable — ${message}`, retryAction: 'begin-scene' })
-      }
+      appendDebugEntry({ label: 'Scene generation failed', text: message })
+      appendFeedEntry({ kind: 'error', speaker: 'System', nodeId: stateAtStart.currentNodeId, text: `Narrator unavailable — ${message}`, retryAction: 'begin-scene' })
       setPendingRetry(() => () => void openSceneFromState(stateAtStart, leadingFeedEntries))
       setLlmError(message)
     } finally {
       setIsAdvancing(false)
+      setGenerationStage(undefined)
     }
   }
 
@@ -3303,8 +3398,6 @@ function App() {
     setLlmError(undefined)
 
     try {
-      await assertLocalModelAvailable(llmSettings)
-
       const stateAtStart = campaign
       const event = stateAtStart.currentEvent
       if (!event) {
@@ -3316,13 +3409,6 @@ function App() {
       const effects = plan?.deterministicEffectsByChoiceId[choice.intentId ?? choice.id] ?? choice.effects ?? []
       const simulationUpdate = plan?.simulationUpdatesByChoiceId[choice.intentId ?? choice.id]
 
-      appendFeedEntry({
-        kind: 'selected',
-        speaker: 'Your choice',
-        nodeId: node.id,
-        eventId: event.id,
-        text: getSelectedChoiceLogText(choice),
-      })
       appendDebugEntry({
         label: 'Selected choice',
         text: `${choice.label}\nMode: ${choice.mode}\nRelevant selected-protagonist skill tags: ${getApplicableChoiceSkillTags(choice, stateAtStart.player).join(', ') || 'none'}\nAuthored choice tags: ${choice.skillTags.join(', ') || 'none'}\n\nEffects:\n${effects.map(describeEffect).join('\n') || 'No mechanical effects.'}`,
@@ -3332,36 +3418,54 @@ function App() {
       const resolutionPrompt = buildStructuredResolutionPrompt(stateAtStart, event, choice, effects, memory)
       appendDebugEntry({ label: 'Structured resolution prompt', text: resolutionPrompt })
       appendDebugEntry({ label: 'Legacy resolution prompt (superseded)', text: buildPlayerActionResolutionPrompt(stateAtStart, event, choice, effects) })
-      const resolutionEntryId = appendFeedEntry({ kind: 'narration', speaker: 'Narrator', nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
       const fallbackResolution = buildFallbackResolution({ choice, currentPlace: node.publicName, effects })
+
+      setGenerationStage('checking-model')
+      await assertLocalModelAvailable(llmSettings)
+      setGenerationStage('writing-passage')
       const rawResolutionJson = await streamLocalText(llmSettings, resolutionPrompt, () => {})
+      setGenerationStage('validating-passage')
       const resolutionValidation = parseGeneratedSceneJson(rawResolutionJson, fallbackResolution, ['continue'])
+
       appendDebugEntry({ label: 'Resolution JSON validation', text: formatValidationReport(resolutionValidation) })
       const resolutionText = generatedSceneToText(resolutionValidation.scene)
-      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, text: resolutionText, generatedText: resolutionText }))
+      const displayedResolutionText = resolutionText
       appendDirectionLintWarning(stateAtStart, resolutionText, 'Choice resolution')
-      updateFeedEntry(resolutionEntryId, (entry) => ({ ...entry, consequenceBadges: getEffectBadges(effects), streaming: false }))
 
       let updatedStoryNpcs = stateAtStart.storyNpcs
       let npcText = ''
       if (sceneNpc) {
         const npcPrompt = buildNpcResponsePrompt(stateAtStart, event, sceneNpc, choice, resolutionText)
         appendDebugEntry({ label: 'NPC prompt', text: npcPrompt })
-        const npcEntryId = appendFeedEntry({ kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: '', generatedText: '', streaming: true })
-        npcText = await streamFeedEntry(npcEntryId, npcPrompt)
+        npcText = await streamLocalText(llmSettings, npcPrompt, () => {})
         appendDirectionLintWarning(stateAtStart, npcText, 'NPC response')
-        updateFeedEntry(npcEntryId, (entry) => ({ ...entry, streaming: false }))
         updatedStoryNpcs = stateAtStart.storyNpcs.map((npc) => (npc.id === sceneNpc.id ? { ...npc, memory: [...npc.memory, npcText].slice(-8) } : npc))
       }
 
       let updatedCondition = stateAtStart.player.condition
-      try {
-        const conditionPrompt = buildPlayerConditionUpdatePrompt(stateAtStart, choice, resolutionText, npcText)
-        appendDebugEntry({ label: 'Condition prompt', text: conditionPrompt })
-        const conditionText = await streamLocalText(llmSettings, conditionPrompt, () => {})
-        updatedCondition = sanitizePlayerCondition(conditionText, stateAtStart.player.condition)
-      } catch {
-        updatedCondition = stateAtStart.player.condition
+      const conditionPrompt = buildPlayerConditionUpdatePrompt(stateAtStart, choice, resolutionText, npcText)
+      appendDebugEntry({ label: 'Condition prompt', text: conditionPrompt })
+      const conditionText = await streamLocalText(llmSettings, conditionPrompt, () => {})
+      updatedCondition = sanitizePlayerCondition(conditionText, stateAtStart.player.condition)
+
+      appendFeedEntry({
+        kind: 'selected',
+        speaker: 'Your choice',
+        nodeId: node.id,
+        eventId: event.id,
+        text: getSelectedChoiceLogText(choice),
+      })
+      appendFeedEntry({
+        kind: 'narration',
+        speaker: 'Narrator',
+        nodeId: node.id,
+        eventId: event.id,
+        text: displayedResolutionText,
+        generatedText: displayedResolutionText,
+        consequenceBadges: getEffectBadges(effects),
+      })
+      if (sceneNpc && npcText) {
+        appendFeedEntry({ kind: 'dialogue', speaker: sceneNpc.name, nodeId: node.id, eventId: event.id, text: npcText, generatedText: npcText })
       }
 
       const appliedState = applyStoryEffects({ ...stateAtStart, player: { ...stateAtStart.player, condition: updatedCondition }, storyNpcs: updatedStoryNpcs }, effects)
@@ -3391,7 +3495,7 @@ function App() {
       }
 
       if (outcome !== 'running') {
-        const outcomeText = outcome === 'won' ? activeStory.runtime.outcomeFeedText.won : activeStory.runtime.outcomeFeedText.lost
+        const outcomeText = outcome === 'won' ? getEndingResolution(appliedState) : activeStory.runtime.outcomeFeedText.lost
         appendFeedEntry({ ...createLocationFeedEntry(getNode(appliedState.currentNodeId)) })
         appendFeedEntry({
           kind: 'narration',
@@ -3408,6 +3512,7 @@ function App() {
       setLlmError(message)
     } finally {
       setIsAdvancing(false)
+      setGenerationStage(undefined)
     }
   }
 
@@ -3438,13 +3543,12 @@ function App() {
     }))
   }
 
-  const sidebarOllamaStatus = ollamaStatus === 'connected'
-    ? availableModels.length > 0
-      ? `Connected · ${llmSettings.model}`
-      : 'Ollama running · no models installed'
-    : ollamaStatus === 'checking'
-      ? 'Checking Ollama…'
-      : 'Ollama unreachable · check setup'
+  const sidebarOllamaStatus = getOllamaStatusLabel(ollamaStatus, availableModels, llmSettings.model)
+  const narratorStatus = {
+    label: sidebarOllamaStatus,
+    tone: getOllamaStatusTone(ollamaStatus, availableModels),
+  }
+  const retryNarratorConnection = () => setConnectionCheckNonce((value) => value + 1)
 
   const beginWithSelectedProtagonist = () => {
     const nextCampaign = createInitialCampaignState(selectedProtagonist)
@@ -3458,7 +3562,38 @@ function App() {
     setPendingRetry(undefined)
     setActiveMainTab('story')
     setAppPhase('playing')
+    window.setTimeout(() => {
+      void openSceneFromState(nextCampaign)
+    }, 0)
+  }
+
+  const resetToCampaign = (player: PlayableCharacter, phase: AppPhase) => {
+    const nextCampaign = createInitialCampaignState(player)
+    setCampaign(nextCampaign)
+    setSelectedNodeId(nextCampaign.currentNodeId)
+    setSelectedItemId(nextCampaign.player.inventory[0]?.id)
+    setTravelAnimation(undefined)
+    setIsTravelAnimating(false)
+    setConfirmingChoiceId(undefined)
+    setLlmError(undefined)
+    setPendingRetry(undefined)
+    setGenerationStage(undefined)
+    setActiveMainTab('story')
+    setAppPhase(phase)
     scrollStoryToEnd('auto')
+    return nextCampaign
+  }
+
+  const playAgain = () => {
+    const nextCampaign = resetToCampaign(campaign.player, 'playing')
+    window.setTimeout(() => {
+      void openSceneFromState(nextCampaign)
+    }, 0)
+  }
+
+  const chooseAnotherProtagonist = () => {
+    resetToCampaign(defaultPlayer, 'story-select')
+    setSelectedProtagonistId(defaultPlayer.id)
   }
 
   if (appPhase === 'story-select') {
@@ -3466,6 +3601,9 @@ function App() {
       <StorySelectionScreen
         players={playableCharacters}
         selectedPlayerId={selectedProtagonistId}
+        narratorStatus={narratorStatus}
+        narratorHint={llmSetupHint}
+        onRetryNarrator={retryNarratorConnection}
         onSelectPlayer={setSelectedProtagonistId}
         onSelect={() => setAppPhase('protagonist-intro')}
       />
@@ -3473,7 +3611,7 @@ function App() {
   }
 
   if (appPhase === 'protagonist-intro') {
-    return <ProtagonistIntroScreen player={selectedProtagonist} onBegin={beginWithSelectedProtagonist} />
+    return <ProtagonistIntroScreen player={selectedProtagonist} narratorStatus={narratorStatus} narratorHint={llmSetupHint} onRetryNarrator={retryNarratorConnection} onBegin={beginWithSelectedProtagonist} />
   }
 
   return (
@@ -3494,14 +3632,10 @@ function App() {
                   <span className={`size-2 shrink-0 rounded-full ${ollamaStatus === 'connected' ? 'bg-emerald-500' : ollamaStatus === 'checking' ? 'bg-amber-400' : 'bg-red-500'}`} />
                   <span className="truncate whitespace-nowrap">{sidebarOllamaStatus}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex">
                   <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-nowrap" onClick={() => setThemeMode((theme) => getNextThemeMode(theme))} title={themeMode === 'system' ? `System preference: ${resolvedThemeMode}` : `Theme: ${themeMode}`}>
                     {resolvedThemeMode === 'dark' ? <SunIcon data-icon="inline-start" /> : <MoonIcon data-icon="inline-start" />}
                     {resolvedThemeMode === 'dark' ? 'Light' : 'Dark'}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-nowrap" onClick={() => setSettingsOpen(true)}>
-                    <SettingsIcon data-icon="inline-start" />
-                    Settings
                   </Button>
                 </div>
               </div>
@@ -3514,16 +3648,23 @@ function App() {
               {llmError ? (
                 <Alert variant="destructive" className="iff-chrome-panel">
                   <AlertCircleIcon />
-                  <AlertTitle>The next passage could not be prepared</AlertTitle>
-                  <AlertDescription className="font-serif">Open Options if you want to inspect diagnostics, then try again.</AlertDescription>
+                  <AlertTitle>Local narrator issue</AlertTitle>
+                  <AlertDescription className="flex flex-col gap-3 font-serif">
+                    <span>{llmError}</span>
+                    <span className="flex flex-wrap gap-2">
+                      {pendingRetry ? <Button type="button" variant="outline" size="sm" onClick={pendingRetry}>Retry</Button> : null}
+                      <Button type="button" variant="outline" size="sm" onClick={() => setActiveMainTab('settings')}>Open settings</Button>
+                    </span>
+                  </AlertDescription>
                 </Alert>
               ) : null}
 
               <Tabs value={activeMainTab} onValueChange={(value) => setActiveMainTab(value as MainTab)} className="flex min-h-0 flex-1 flex-col gap-3">
-                <TabsList className="shrink-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
+                <TabsList className="w-full shrink-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
                   <TabsTrigger value="story" disabled={isTravelAnimating} className="inline-flex items-center gap-2"><BookOpenIcon className="size-3.5" aria-hidden="true" />Story</TabsTrigger>
                   <TabsTrigger value="map" className="inline-flex items-center gap-2"><MapIcon className="size-3.5" aria-hidden="true" />Map</TabsTrigger>
                   <TabsTrigger value="character" disabled={isTravelAnimating} className="inline-flex items-center gap-2"><UserRoundIcon className="size-3.5" aria-hidden="true" />Character</TabsTrigger>
+                  <TabsTrigger value="settings" className="ml-auto inline-flex items-center gap-2"><SettingsIcon className="size-3.5" aria-hidden="true" />Settings</TabsTrigger>
                 </TabsList>
                 <TabsContent value="story" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
@@ -3545,7 +3686,7 @@ function App() {
                     </CardContent>
                   </Card>
                   <section aria-label="Next actions" className="shrink-0">
-                    <ChoicePanel state={campaign} isAdvancing={isStoryLocked} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} />
+                    <ChoicePanel state={campaign} isAdvancing={isStoryLocked} generationStage={generationStage} confirmingChoiceId={confirmingChoiceId} onCancelConfirm={() => setConfirmingChoiceId(undefined)} onBeginScene={beginScene} onChoose={chooseAction} />
                   </section>
                 </TabsContent>
                 <TabsContent value="map" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
@@ -3554,14 +3695,10 @@ function App() {
                 <TabsContent value="character" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <CharacterPanel state={campaign} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId} />
                 </TabsContent>
-              </Tabs>
-            </div>
-        </section>
-
-        {settingsOpen ? (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80" onClick={() => setSettingsOpen(false)}>
-            <div className="min-h-svh">
-              <Card className="iff-chrome-panel ml-auto min-h-svh w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
+                <TabsContent value="settings" forceMount className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+                  <ScrollArea className="h-[min(72svh,760px)] min-h-0 lg:h-full">
+                    <div className="flex max-w-3xl flex-col gap-4 pr-3">
+              <Card className="iff-chrome-panel">
                 <CardHeader>
                   <CardTitle>Options</CardTitle>
                   <CardDescription className="font-serif">Tune the local narrator and display. Refresh the page to start over.</CardDescription>
@@ -3695,11 +3832,14 @@ function App() {
               </Card>
 
               {advancedOpen && debugMode ? <DebugPanel entries={campaign.debugFeed} /> : null}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
             </div>
-          </div>
-        ) : null}
+        </section>
 
-        <EndScreen state={campaign} />
+        <EndScreen state={campaign} onPlayAgain={playAgain} onChooseAnother={chooseAnotherProtagonist} />
       </div>
     </main>
     </TooltipProvider>
