@@ -307,7 +307,6 @@ function createInitialCampaignState(player: PlayableCharacter): CampaignState {
     exploredNodeIds: activeStory.runtime.initialExploredNodeIds ?? [initialNodeId],
     eventHistory: [],
     feed: [
-      { id: 'opening-location', ...createLocationFeedEntry(initialNode) },
       {
         id: 'opening',
         kind: 'narration',
@@ -3485,7 +3484,7 @@ function App() {
           <Card className="iff-chrome-panel">
             <CardHeader className="pb-2">
               <div className="min-w-0">
-                <CardTitle className="mt-1 font-[var(--font-display)] text-xl font-light leading-tight">{storySchema.title}</CardTitle>
+                <CardTitle className="mt-1 font-[var(--font-display)] text-lg font-light leading-tight">{storySchema.title}</CardTitle>
                 <p className="mt-1 font-serif text-sm text-[var(--color-text-muted)]">a story by IFF Contributors</p>
               </div>
             </CardHeader>
@@ -3529,12 +3528,12 @@ function App() {
                 <TabsContent value="story" forceMount className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
                   <Card className="iff-stage-card min-h-0 flex-1">
                     <CardHeader className="shrink-0 border-b border-[var(--color-border)] pb-4">
-                      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,auto)_minmax(18rem,1fr)] lg:items-end lg:gap-6">
+                      <div className="min-w-0">
                         <div className="min-w-0">
                           <p className="ui-label">Current location</p>
-                          <CardTitle className="mt-1 font-[var(--font-display)] text-4xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
+                          <CardTitle className="mt-1 font-[var(--font-display)] text-3xl font-light leading-tight tracking-wide">{currentNode.publicName}</CardTitle>
                         </div>
-                        <CardDescription className="w-full max-w-none self-end font-serif text-sm leading-6 lg:max-w-xl lg:justify-self-end lg:text-right">{currentNode.description}</CardDescription>
+                        <CardDescription className="mt-2 max-w-3xl font-serif text-sm leading-snug">{currentNode.description}</CardDescription>
                       </div>
                     </CardHeader>
                     <CardContent className="min-h-0 flex-1 p-0">
